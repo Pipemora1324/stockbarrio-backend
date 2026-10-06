@@ -1,0 +1,30 @@
+import cors from 'cors';
+import express from 'express';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import { config } from './config.js';
+import authRouter from './routes/auth.js';
+import productsRouter from './routes/products.js';
+import recommendationsRouter from './routes/recommendations.js';
+import storesRouter from './routes/stores.js';
+
+export const app = express();
+app.disable('x-powered-by');
+app.use(helmet());
+app.use(cors({ origin: config.corsOrigin.split(',').map((origin) => origin.trim()), credentials: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan(config.nodeEnv === 'production' ? 'combined' : 'dev'));
+app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false }));
+app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'stock-barrios-api', timestamp: new Date().toISOString() }));
+app.use('/api/auth', authRouter);
+app.use('/api/stores', storesRouter);
+app.use('/api/products', productsRouter);
+app.use('/api/recommendations', recommendationsRouter);
+app.use((_request, response) => response.status(404).json({ message: 'La ruta no existe.' }));
+app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  console.error(error);
+  const message = error instanceof Error ? error.message : 'Ha ocurrido un error inesperado.';
+  const status = message.includes('no existe') || message.includes('obligatoria') ? 400 : 500;
+  response.status(status).json({ message: status === 500 ? 'Ha ocurrido un error inesperado.' : message });
+});
