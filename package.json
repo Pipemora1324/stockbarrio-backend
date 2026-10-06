@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('node:fs').cpSync('src/migrations', 'dist/migrations', { recursive: true })\"",
     "start": "node dist/index.js",
     "migrate": "tsx src/migrate.ts",
     "test": "tsx --test test/**/*.test.ts",
