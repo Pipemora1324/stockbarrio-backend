@@ -12,7 +12,7 @@
     "lint": "tsc --noEmit"
   },
   "keywords": ["express", "postgresql", "api"],
-  "author": "StockBarrio IA",
+  "author": "Pipemora1324",
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^3.0.3",
