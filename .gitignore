@@ -1,0 +1,25 @@
+# Dependencias y compilado
+node_modules/
+dist/
+coverage/
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Volcados de base de datos
+*.dump
+*.sql.gz
+*.backup
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
