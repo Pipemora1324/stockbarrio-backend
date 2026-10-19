@@ -19,4 +19,6 @@ export const verifyPassword = async (password: string, hashedPassword: string) =
     return false;
   }
 };
-export const createToken = (user: AuthUser) => jwt.sign(user, config.jwtSecret, { expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'] });
+// "tv" is the account's token version: sessions signed with an older version are rejected.
+export const createToken = (user: AuthUser, tokenVersion = 0) =>
+  jwt.sign({ ...user, tv: tokenVersion }, config.jwtSecret, { expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'] });

@@ -44,5 +44,8 @@ export const storeRepository = {
         [id, values.latitude, values.longitude, values.address ?? null, values.phone ?? null],
       )
     ).rows[0],
+  // Claims today's AI call for the store. Only the first caller of the day gets true, even with simultaneous visits.
+  claimAiReasonsDay: async (id: string, day: string) =>
+    Boolean((await database.query(`UPDATE stores SET ai_reasons_on = $2 WHERE id = $1 AND ai_reasons_on IS DISTINCT FROM $2::date RETURNING id`, [id, day])).rowCount),
   getByUserId: async (userId: string) => (await database.query<StoreRecord>(`SELECT ${storeColumns} FROM stores WHERE user_id = $1`, [userId])).rows[0],
 };

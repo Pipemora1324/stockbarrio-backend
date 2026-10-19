@@ -1,6 +1,6 @@
 import { integrationSkip, useTestApi } from './helpers/api.js';
 import assert from 'node:assert/strict';
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { config } from '../src/config.js';
 import { addDays, todayInBogota } from '../src/dates.js';
 import { buildNotificationText, matchesPlace, matchesProduct, type DiscountedProduct } from '../src/services/notifications.js';
@@ -39,8 +39,13 @@ describe('alerts and notifications API', { skip: integrationSkip }, () => {
   const today = todayInBogota();
   const originalLimit = config.notificationsDailyLimit;
 
+  beforeEach(() => {
+    config.enableAlerts = true;
+  });
+
   afterEach(() => {
     config.notificationsDailyLimit = originalLimit;
+    config.enableAlerts = false;
   });
 
   const registerCustomer = async (suffix: string) => {
@@ -138,6 +143,17 @@ describe('alerts and notifications API', { skip: integrationSkip }, () => {
     assert.equal((await call('GET', '/api/alerts', undefined, shop.token)).status, 403);
     assert.equal((await call('GET', '/api/suggestions', undefined, customer.token)).status, 403);
     assert.equal((await call('POST', '/api/products', { name: 'Pan', price: 1000, stock: 1, expirationDate: today, discountPercent: 0 }, customer.token)).status, 403);
+  });
+
+  it('creates no notifications while ENABLE_ALERTS is off', async () => {
+    config.enableAlerts = false;
+    const shop = await registerStore('noti-apagado');
+    const customer = await registerCustomer('apagado');
+    await call('POST', '/api/alerts', { query: 'yogur' }, customer.token);
+    const approved = await approveDiscountFor(shop.token, 'Yogur de fresa', 'Lácteos');
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body.notified, 0);
+    assert.equal((await call('GET', '/api/notifications', undefined, customer.token)).body.data.length, 0);
   });
 
   it('lets a customer delete an alert', async () => {

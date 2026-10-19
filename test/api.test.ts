@@ -4,12 +4,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { addDays, todayInBogota } from '../src/dates.js';
 
 describe('API', { skip: integrationSkip }, () => {
   const context = useTestApi();
   const { call, registerStore } = context;
 
-  const product = { name: 'Leche entera 1 L', category: 'Lácteos', price: 4900, stock: 10, expirationDate: '2026-10-20', discountPercent: 0 };
+  const inTwoDays = addDays(todayInBogota(), 2);
+  const product = { name: 'Leche entera 1 L', category: 'Lácteos', price: 4900, stock: 10, expirationDate: inTwoDays, discountPercent: 0 };
 
   it('does not reapply migrations that already ran', async () => {
     const { migrate } = await import('../src/migrate.js');
@@ -39,7 +41,7 @@ describe('API', { skip: integrationSkip }, () => {
   it('rejects a public registration without store data instead of creating an admin', async () => {
     const result = await call('POST', '/api/auth/register', { name: 'Colado', email: 'colado@stockbarrio.test', password: '12345678' });
     assert.equal(result.status, 400);
-    assert.match(result.body.message, /Nombre de la tienda es obligatorio/);
+    assert.match(result.body.message, /El nombre de la tienda es obligatorio/);
     const admins = await context.pool.query(`SELECT 1 FROM users WHERE role = 'admin'`);
     assert.equal(admins.rowCount, 0);
   });
@@ -66,7 +68,7 @@ describe('API', { skip: integrationSkip }, () => {
     const created = await call('POST', '/api/products', product, owner.token);
     assert.equal(created.status, 201);
     assert.equal(created.body.data.storeId, owner.user.storeId);
-    assert.equal(created.body.data.expirationDate, '2026-10-20');
+    assert.equal(created.body.data.expirationDate, inTwoDays);
     assert.equal(created.body.data.offerPrice, 4900);
 
     const id = created.body.data.id as string;
@@ -86,8 +88,9 @@ describe('API', { skip: integrationSkip }, () => {
 
   it('keeps the old ISO date format working for older clients', async () => {
     const owner = await registerStore('cuatro');
-    const created = await call('POST', '/api/products', { ...product, expirationDate: '2026-11-05T00:00:00.000Z' }, owner.token);
-    assert.equal(created.body.data.expirationDate, '2026-11-05');
+    const later = addDays(todayInBogota(), 18);
+    const created = await call('POST', '/api/products', { ...product, expirationDate: `${later}T00:00:00.000Z` }, owner.token);
+    assert.equal(created.body.data.expirationDate, later);
   });
 
   it('forbids product writes for accounts that are not stores', async () => {
@@ -101,7 +104,7 @@ describe('API', { skip: integrationSkip }, () => {
   it('combines optional filters with the right placeholders', async () => {
     const owner = await registerStore('cinco');
     await call('POST', '/api/products', { ...product, name: 'Queso campesino', category: 'Lácteos' }, owner.token);
-    await call('POST', '/api/products', { ...product, name: 'Queso crema', category: 'Untables' }, owner.token);
+    await call('POST', '/api/products', { ...product, name: 'Queso crema', category: 'Despensa' }, owner.token);
     const result = await call('GET', '/api/products?category=l%C3%A1cteos&search=queso');
     assert.equal(result.status, 200);
     assert.deepEqual(result.body.data.map((item: { name: string }) => item.name), ['Queso campesino']);
@@ -113,7 +116,7 @@ describe('API', { skip: integrationSkip }, () => {
     const owner = await registerStore('seis');
     const invalid = await call('POST', '/api/products', { ...product, price: -1, expirationDate: '2026-02-30' }, owner.token);
     assert.equal(invalid.status, 400);
-    assert.match(invalid.body.message, /Precio debe ser mayor que 0/);
+    assert.match(invalid.body.message, /El precio debe ser mayor que 0/);
     assert.match(invalid.body.message, /La fecha no es válida/);
     assert.equal((await call('GET', '/api/stores/no-es-un-uuid')).status, 400);
   });

@@ -55,7 +55,7 @@ export interface SearchRow extends ProductRecord {
 const searchableText = `translate(lower(p.name || ' ' || p.category || ' ' || p.description), 'áéíóúüñ', 'aeiouun')`;
 
 export const productRepository = {
-  search: async (terms: string[], options: { neighborhood?: string; matchAll: boolean; limit: number }) => {
+  search: async (terms: string[], options: { neighborhood?: string; category?: string; maxPrice?: number; onlyDiscounted?: boolean; matchAll: boolean; limit: number }) => {
     const params: unknown[] = [];
     const addParam = (value: unknown) => {
       params.push(value);
@@ -65,6 +65,9 @@ export const productRepository = {
     const conditions = ['p.active = true', 's.active = true', 'p.stock > 0'];
     if (termConditions.length) conditions.push(`(${termConditions.join(options.matchAll ? ' AND ' : ' OR ')})`);
     if (options.neighborhood) conditions.push(`lower(s.neighborhood) = lower(${addParam(options.neighborhood)})`);
+    if (options.category) conditions.push(`lower(p.category) = lower(${addParam(options.category)})`);
+    if (options.maxPrice) conditions.push(`p.offer_price <= ${addParam(options.maxPrice)}`);
+    if (options.onlyDiscounted) conditions.push('p.discount_percent > 0');
     const result = await database.query<SearchRow>(
       `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address, s.latitude, s.longitude
        FROM products p JOIN stores s ON s.id = p.store_id WHERE ${conditions.join(' AND ')}
@@ -77,6 +80,25 @@ export const productRepository = {
     const { where, params } = buildProductFilters(filters);
     const result = await database.query<ProductRecord & { neighborhood: string; storeName: string }>(
       `SELECT ${productColumns}, s.neighborhood, s.name AS "storeName" FROM products p JOIN stores s ON s.id = p.store_id WHERE ${where} ORDER BY p.expiration_date ASC`,
+      params,
+    );
+    return result.rows;
+  },
+  // Products that currently have a discount, can be bought and are not expired (Bogota calendar).
+  listOffers: async (filters: { neighborhood?: string; category?: string; search?: string; today: string; limit: number }) => {
+    const params: unknown[] = [filters.today];
+    const addParam = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    const conditions = ['p.active = true', 's.active = true', 'p.stock > 0', 'p.discount_percent > 0', 'p.expiration_date >= $1'];
+    if (filters.neighborhood) conditions.push(`lower(s.neighborhood) = lower(${addParam(filters.neighborhood)})`);
+    if (filters.category) conditions.push(`lower(p.category) = lower(${addParam(filters.category)})`);
+    if (filters.search) conditions.push(`${searchableText} LIKE ${addParam(`%${filters.search}%`)}`);
+    const result = await database.query<SearchRow>(
+      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address, s.latitude, s.longitude
+       FROM products p JOIN stores s ON s.id = p.store_id WHERE ${conditions.join(' AND ')}
+       ORDER BY p.discount_percent DESC, p.expiration_date ASC LIMIT ${addParam(filters.limit)}`,
       params,
     );
     return result.rows;

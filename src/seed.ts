@@ -40,6 +40,7 @@ const seedStores: SeedStore[] = [
       { name: 'Pan tajado integral', category: 'Panadería', description: 'Pan tajado de 500 g.', price: 6200, stock: 15, expiresInDays: 1 },
       { name: 'Queso campesino 500 g', category: 'Lácteos', description: 'Queso fresco campesino.', price: 9500, stock: 6, expiresInDays: 4 },
       { name: 'Arroz 1 kg', category: 'Granos', description: 'Arroz blanco de grano largo.', price: 4300, stock: 40, expiresInDays: 240 },
+      { name: 'Pollo asado entero', category: 'Comidas preparadas', description: 'Pollo asado al carbón con papa y arepa.', price: 32000, stock: 6, expiresInDays: 1 },
     ],
   },
   {
@@ -62,6 +63,7 @@ const seedStores: SeedStore[] = [
       { name: 'Jamón de cerdo 250 g', category: 'Carnes frías', description: 'Jamón tajado.', price: 7400, stock: 12, expiresInDays: 2 },
       { name: 'Banano x libra', category: 'Frutas y verduras', description: 'Banano criollo maduro.', price: 1800, stock: 35, expiresInDays: 3 },
       { name: 'Panela 500 g', category: 'Despensa', description: 'Panela redonda.', price: 3200, stock: 25, expiresInDays: 300 },
+      { name: 'Pollo asado medio', category: 'Comidas preparadas', description: 'Medio pollo asado con papa salada.', price: 18000, stock: 8, expiresInDays: 1, discountPercent: 10 },
     ],
   },
   {
@@ -73,6 +75,7 @@ const seedStores: SeedStore[] = [
       { name: 'Arepa paisa x 10', category: 'Panadería', description: 'Arepas delgadas de maíz blanco.', price: 5200, stock: 16, expiresInDays: 4 },
       { name: 'Quesito antioqueño 400 g', category: 'Lácteos', description: 'Quesito fresco.', price: 8200, stock: 7, expiresInDays: 3 },
       { name: 'Fríjol cargamanto 500 g', category: 'Granos', description: 'Fríjol rojo seco.', price: 6900, stock: 30, expiresInDays: 365 },
+      { name: 'Pollo asado entero', category: 'Comidas preparadas', description: 'Pollo asado con arepa y ají.', price: 29900, stock: 4, expiresInDays: 0, discountPercent: 15 },
     ],
   },
   {
@@ -108,10 +111,30 @@ const seedAdmin = async (client: PoolClient) => {
   }
 };
 
+const insertProduct = async (client: PoolClient, storeId: string, product: SeedProduct, today: string) => {
+  const discount = product.discountPercent ?? 0;
+  await client.query(
+    `INSERT INTO products (store_id, name, category, description, price, offer_price, stock, expiration_date, discount_percent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [storeId, product.name, product.category, product.description, product.price, Math.round(product.price * (1 - discount / 100)), product.stock, addDays(today, product.expiresInDays), discount],
+  );
+};
+
 const seedStore = async (client: PoolClient, store: SeedStore, passwordHash: string, today: string) => {
-  const existing = await client.query('SELECT id FROM users WHERE email = $1', [store.email]);
+  const existing = await client.query<{ storeId: string | null }>('SELECT store_id AS "storeId" FROM users WHERE email = $1', [store.email]);
   if (existing.rowCount) {
-    console.info(`${store.name}: ya existe, se omite.`);
+    // The store already exists: only add the sample products it does not have yet.
+    const storeId = existing.rows[0].storeId;
+    let added = 0;
+    for (const product of storeId ? store.products : []) {
+      const found = await client.query('SELECT 1 FROM products WHERE store_id = $1 AND name = $2', [storeId, product.name]);
+      if (!found.rowCount) {
+        await insertProduct(client, storeId!, product, today);
+        added++;
+      }
+    }
+    const addedText = added === 1 ? ', se agregó 1 producto nuevo' : `, se agregaron ${added} productos nuevos`;
+    console.info(`${store.name}: ya existe${added ? addedText : ', se omite'}.`);
     return;
   }
   const user = await client.query<{ id: string }>(`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, 'store') RETURNING id`, [store.owner, store.email, passwordHash]);
@@ -121,14 +144,7 @@ const seedStore = async (client: PoolClient, store: SeedStore, passwordHash: str
   );
   const storeId = created.rows[0].id;
   await client.query('UPDATE users SET store_id = $1 WHERE id = $2', [storeId, user.rows[0].id]);
-  for (const product of store.products) {
-    const discount = product.discountPercent ?? 0;
-    await client.query(
-      `INSERT INTO products (store_id, name, category, description, price, offer_price, stock, expiration_date, discount_percent)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [storeId, product.name, product.category, product.description, product.price, Math.round(product.price * (1 - discount / 100)), product.stock, addDays(today, product.expiresInDays), discount],
-    );
-  }
+  for (const product of store.products) await insertProduct(client, storeId, product, today);
   console.info(`${store.name}: creada con ${store.products.length} productos.`);
 };
 

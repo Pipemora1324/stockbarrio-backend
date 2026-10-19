@@ -1,22 +1,32 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { forbidden, notFound } from '../errors.js';
+import { badRequest, forbidden, notFound } from '../errors.js';
 import { authenticate, requireStore, type AuthenticatedRequest } from '../middleware/auth.js';
 import { productRepository } from '../repositories/product.js';
-import { dateOnlySchema } from '../validation.js';
+import { canonicalCategory, categorySchema, dateOnlySchema, discountSchema, futureDateSchema, priceSchema, productCategories, productNameSchema, stockSchema } from '../validation.js';
 
 const router = Router();
 const productSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  category: z.string().trim().min(2).max(80).default('Alimentación'),
-  description: z.string().trim().max(500).default(''),
-  price: z.coerce.number().positive(),
-  stock: z.coerce.number().int().nonnegative(),
-  expirationDate: dateOnlySchema,
-  discountPercent: z.coerce.number().min(0).max(100),
-  imageUrl: z.string().max(300).optional().default(''),
+  name: productNameSchema,
+  category: categorySchema.default('Alimentación'),
+  description: z.string().trim().max(500, 'La descripción debe tener como máximo 500 caracteres.').default(''),
+  price: priceSchema,
+  stock: stockSchema,
+  expirationDate: futureDateSchema,
+  discountPercent: discountSchema.default(0),
+  imageUrl: z.string().trim().max(300).default(''),
 });
-const updateSchema = productSchema.partial().extend({ category: z.string().trim().min(2).max(80).optional(), description: z.string().trim().max(500).optional(), imageUrl: z.string().max(300).optional() });
+// On edit the date may already be in the past (the store is fixing an old product) and the category may be a legacy one.
+const updateSchema = z.object({
+  name: productNameSchema.optional(),
+  category: z.string().trim().min(2).max(80).optional(),
+  description: z.string().trim().max(500, 'La descripción debe tener como máximo 500 caracteres.').optional(),
+  price: priceSchema.optional(),
+  stock: stockSchema.optional(),
+  expirationDate: dateOnlySchema.optional(),
+  discountPercent: discountSchema.optional(),
+  imageUrl: z.string().trim().max(300).optional(),
+});
 const idSchema = z.object({ id: z.string().uuid() });
 const storeIdSchema = z.object({ storeId: z.string().uuid() });
 
@@ -35,6 +45,10 @@ router.get('/', async (request, response, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+router.get('/categories', (_request, response) => {
+  response.json({ data: productCategories });
 });
 
 router.get('/mine', authenticate, requireStore, async (request: AuthenticatedRequest, response, next) => {
@@ -68,6 +82,11 @@ router.put('/:id', authenticate, requireStore, async (request: AuthenticatedRequ
   try {
     const current = await getOwnedProduct(request);
     const input = updateSchema.parse(request.body);
+    if (input.category !== undefined && input.category !== current.category) {
+      const category = canonicalCategory(input.category);
+      if (!category) throw badRequest('Elige una categoría de la lista.');
+      input.category = category;
+    }
     const product = await productRepository.upsert({ ...current, ...input, id: current.id, storeId: current.storeId });
     response.json({ data: product, message: 'El producto se ha actualizado correctamente.' });
   } catch (error) {

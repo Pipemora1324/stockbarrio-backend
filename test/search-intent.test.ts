@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { parseIntent, singularize } from '../src/services/search-intent.js';
+import { parseIntent, searchStem, singularize } from '../src/services/search-intent.js';
 
 describe('parseIntent', () => {
   it('understands "busco huevos baratos"', () => {
@@ -27,6 +27,12 @@ describe('parseIntent', () => {
 
   it('keeps several product words', () => {
     assert.deepEqual(parseIntent('necesito leche deslactosada').terms, ['leche', 'deslactosada']);
+  });
+});
+
+describe('searchStem', () => {
+  it('matches masculine and feminine forms of longer words', () => {
+    assert.deepEqual(['asada', 'asado', 'leche', 'papa', 'huevo'].map(searchStem), ['asad', 'asad', 'leche', 'papa', 'huev']);
   });
 });
 

@@ -6,7 +6,7 @@ import { productRepository, type SearchRow } from '../repositories/product.js';
 import { storeRepository } from '../repositories/store.js';
 import { normalizeText } from './discount-rules.js';
 import { requestJson } from './llm.js';
-import { parseIntent, searchPreferences, singularize, type SearchIntent, type SearchPreference } from './search-intent.js';
+import { parseIntent, searchPreferences, searchStem, singularize, synonymVariants, type SearchIntent, type SearchPreference } from './search-intent.js';
 
 export interface AssistantQuery {
   message: string;
@@ -76,7 +76,9 @@ export const buildReply = (intent: SearchIntent, results: AssistantResult[], has
   const what = intent.terms.length ? `«${intent.terms.join(' ')}»` : 'productos';
   if (!intent.terms.length && intent.preference === 'relevance') return '¿Qué producto buscas? Escribe por ejemplo «huevos baratos» o «leche cerca de mí».';
   if (!results.length) return `No encontré ${what} disponibles${intent.neighborhood ? ` en ${intent.neighborhood}` : ''}. Prueba con otra palabra o revisa el catálogo.`;
-  const parts = [`Encontré ${results.length} ${results.length === 1 ? 'opción' : 'opciones'} de ${what}. ${preferenceLabels[intent.preference]}: ${describeResult(results[0])}.`];
+  const stores = new Set(results.map((result) => result.store.id)).size;
+  const inStores = stores > 1 ? ` en ${stores} tiendas` : '';
+  const parts = [`Encontré ${results.length} ${results.length === 1 ? 'opción' : 'opciones'} de ${what}${inStores}. ${preferenceLabels[intent.preference]}: ${describeResult(results[0])}.`];
   if ((intent.wantsNearby || intent.preference === 'nearest') && !hasOrigin) parts.push('Para ordenar por cercanía, comparte tu ubicación o elige tu barrio.');
   return parts.join(' ');
 };
@@ -93,6 +95,8 @@ cheapest = más barato, best_deal = mayor descuento u oferta, best_grade = mejor
 // The provider can only refine the terms and the preference; location handling always comes from local rules.
 const resolveIntent = async (message: string, neighborhoods: string[]): Promise<SearchIntent> => {
   const local = parseIntent(message, neighborhoods);
+  // The rules already understood the product: no need to spend the model quota.
+  if (local.terms.length || local.preference !== 'relevance') return local;
   const answer = await requestJson(aiPrompt, { message }, aiIntentSchema);
   if (!answer || !answer.terms.length) return local;
   const terms = [...new Set(answer.terms.map((term) => singularize(normalizeText(term))))];
@@ -113,20 +117,43 @@ const toResult = (row: SearchRow, today: string, origin: Coordinates | null): As
   store: { id: row.storeId, name: row.storeName, neighborhood: row.neighborhood, address: row.address },
 });
 
+export interface ResultFilters {
+  category?: string;
+  maxPrice?: number;
+  limit?: number;
+}
+
+// Real products from the database for an intent: never anything the database does not have.
+export const findResults = async (intent: SearchIntent, origin: Coordinates | null, filters: ResultFilters = {}, today = todayInBogota()) => {
+  if (!intent.terms.length && intent.preference === 'relevance' && !filters.category) return [];
+  const options = {
+    neighborhood: intent.neighborhood,
+    category: filters.category,
+    maxPrice: filters.maxPrice,
+    onlyDiscounted: intent.preference === 'best_deal' && !intent.terms.length,
+    limit: candidateLimit,
+  };
+  const stems = (terms: string[]) => terms.map(searchStem);
+  let rows = await productRepository.search(stems(intent.terms), { ...options, matchAll: true });
+  // Accent-free search first, then common synonyms, and only then any of the words.
+  for (const variant of rows.length ? [] : synonymVariants(intent.terms)) {
+    rows = await productRepository.search(stems(variant), { ...options, matchAll: true });
+    if (rows.length) break;
+  }
+  if (!rows.length && intent.terms.length > 1) rows = await productRepository.search(stems(intent.terms), { ...options, matchAll: false });
+  const sellable = rows.map((row) => toResult(row, today, origin)).filter((result) => result.daysToExpire >= 0);
+  return rankResults(sellable, intent.preference, intent.wantsNearby).slice(0, filters.limit ?? maxAssistantResults);
+};
+
+export const resolveOrigin = async (query: { location?: Coordinates; neighborhood?: string }) =>
+  query.location ?? (query.neighborhood ? await storeRepository.neighborhoodCenter(query.neighborhood) : null);
+
 export const searchAssistant = async (query: AssistantQuery, today = todayInBogota()) => {
   const neighborhoods = await storeRepository.listNeighborhoods();
   const intent = await resolveIntent(query.message, neighborhoods);
-  const origin = query.location ?? (query.neighborhood ? await storeRepository.neighborhoodCenter(query.neighborhood) : null);
+  const origin = await resolveOrigin(query);
   const originType = query.location ? 'location' : origin ? 'neighborhood' : null;
-
-  let results: AssistantResult[] = [];
-  if (intent.terms.length || intent.preference !== 'relevance') {
-    const options = { neighborhood: intent.neighborhood, limit: candidateLimit };
-    let rows = await productRepository.search(intent.terms, { ...options, matchAll: true });
-    if (!rows.length && intent.terms.length > 1) rows = await productRepository.search(intent.terms, { ...options, matchAll: false });
-    const sellable = rows.map((row) => toResult(row, today, origin)).filter((result) => result.daysToExpire >= 0);
-    results = rankResults(sellable, intent.preference, intent.wantsNearby).slice(0, maxAssistantResults);
-  }
+  const results = await findResults(intent, origin, {}, today);
   return {
     reply: buildReply(intent, results, origin !== null),
     intent: { terms: intent.terms, preference: intent.preference, neighborhood: intent.neighborhood ?? null },

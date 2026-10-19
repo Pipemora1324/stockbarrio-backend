@@ -72,6 +72,7 @@ export const formatZodError = (error: ZodError) => {
 
 const postgresErrors: Record<string, { status: number; message: string }> = {
   '22P02': { status: 400, message: 'Alguno de los datos enviados no tiene un formato válido.' },
+  '22001': { status: 400, message: 'Alguno de los datos enviados es demasiado largo.' },
   '23505': { status: 409, message: 'Ya existe un registro con estos datos.' },
   '23503': { status: 409, message: 'El registro está relacionado con datos que no existen.' },
   '23514': { status: 400, message: 'Alguno de los datos enviados está fuera del rango permitido.' },

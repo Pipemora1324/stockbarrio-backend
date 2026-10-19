@@ -59,11 +59,12 @@ export const suggestionRepository = {
     return new Map(result.rows.map((row) => [row.productId, Number(row.percent)]));
   },
   pendingByProduct: async (client: PoolClient, storeId: string) => {
-    const result = await client.query<{ id: string; productId: string }>(
-      `SELECT id, product_id AS "productId" FROM discount_suggestions WHERE store_id = $1 AND status = 'pending' FOR UPDATE`,
+    const result = await client.query<{ id: string; productId: string; suggestedPercent: number; daysToExpire: number; reason: string; source: 'local' | 'ai' }>(
+      `SELECT id, product_id AS "productId", suggested_percent AS "suggestedPercent", days_to_expire AS "daysToExpire", reason, source
+       FROM discount_suggestions WHERE store_id = $1 AND status = 'pending' FOR UPDATE`,
       [storeId],
     );
-    return new Map(result.rows.map((row) => [row.productId, row.id]));
+    return new Map(result.rows.map((row) => [row.productId, row]));
   },
   insert: (client: PoolClient, storeId: string, values: SuggestionValues) =>
     client.query(
