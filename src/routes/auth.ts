@@ -4,25 +4,31 @@ import { createToken, hashPassword, verifyPassword, type AuthUser } from '../ser
 import { userRepository } from '../repositories/user.js';
 import { database } from '../database.js';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
+import { addressSchema, emailSchema, neighborhoodSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
 const router = Router();
 // Public registration creates store or customer accounts, never admins (those come from the seed script).
 const accountSchema = {
-  name: z.string().trim().min(2).max(100),
-  email: z.string().trim().email().max(160),
-  password: z.string().min(8).max(128),
+  name: personNameSchema,
+  email: emailSchema,
+  password: passwordSchema,
 };
-const customerRegisterSchema = z.object({ accountType: z.literal('customer'), ...accountSchema });
+const passwordNotEmail = <T extends { email: string; password: string }>(schema: z.ZodType<T>) =>
+  schema.refine((input) => passwordDiffersFromEmail(input.password, input.email), { message: passwordEqualsEmailMessage, path: ['password'] });
+const customerRegisterSchema = passwordNotEmail(z.object({ accountType: z.literal('customer'), ...accountSchema }));
 // accountType is optional for stores so older clients keep working.
-const registerSchema = z.object({
-  accountType: z.literal('store').optional(),
-  ...accountSchema,
-  storeName: z.string().trim().min(2).max(120),
-  neighborhood: z.string().trim().min(2).max(80),
-  address: z.string().trim().min(5).max(200),
-  phone: z.string().trim().max(30).optional(),
-});
-const loginSchema = z.object({ email: z.string().trim().email(), password: z.string().min(1) });
+const registerSchema = passwordNotEmail(
+  z.object({
+    accountType: z.literal('store').optional(),
+    ...accountSchema,
+    storeName: storeNameSchema,
+    neighborhood: neighborhoodSchema,
+    address: addressSchema,
+    phone: phoneSchema.optional(),
+  }),
+);
+// Login stays lenient with the format so older accounts can always sign in.
+const loginSchema = z.object({ email: z.string().trim().toLowerCase().min(3).max(254), password: z.string().min(1).max(200) });
 
 const toAuthUser = (user: { id: string; name: string; email: string; role: AuthUser['role']; storeId?: string | null }): AuthUser => ({
   id: user.id,
