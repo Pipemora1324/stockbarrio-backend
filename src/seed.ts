@@ -6,7 +6,7 @@ import { addDays, todayInBogota } from './dates.js';
 import { migrate } from './migrate.js';
 import { hashPassword } from './services/auth.js';
 
-// Manual script only: it never runs on startup. Usage: npm run seed [-- --allow-production]
+// Manual script only: it never runs on startup. Usage: npm run seed [-- --admin-only] [-- --allow-production]
 
 interface SeedProduct {
   name: string;
@@ -136,9 +136,15 @@ export const seed = async () => {
   if (config.nodeEnv === 'production' && !process.argv.includes('--allow-production')) {
     throw new Error('El seed no se ejecuta en producción. Si de verdad lo necesitas, usa --allow-production.');
   }
+  const adminOnly = process.argv.includes('--admin-only');
+  if (adminOnly && (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD)) throw new Error('Con --admin-only debes definir ADMIN_EMAIL y ADMIN_PASSWORD.');
+  await migrate();
+  if (adminOnly) {
+    await database.withTransaction(seedAdmin);
+    return;
+  }
   const storePassword = process.env.SEED_STORE_PASSWORD ?? (config.nodeEnv === 'production' ? '' : 'tienda12345');
   if (storePassword.length < 8) throw new Error('Define SEED_STORE_PASSWORD (mínimo 8 caracteres) para las tiendas de ejemplo.');
-  await migrate();
   const passwordHash = await hashPassword(storePassword);
   const today = todayInBogota();
   await database.withTransaction(async (client) => {
