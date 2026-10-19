@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { daysBetween, todayInBogota } from '../dates.js';
 import { formatCop } from '../format.js';
-import { distanceKm, formatDistance, hasCoordinates, type Coordinates } from '../geo.js';
 import { productRepository, type SearchRow } from '../repositories/product.js';
 import { storeRepository } from '../repositories/store.js';
 import { normalizeText } from './discount-rules.js';
@@ -10,8 +9,7 @@ import { parseIntent, searchPreferences, searchStem, singularize, synonymVariant
 
 export interface AssistantQuery {
   message: string;
-  // The customer's position is only used for this request; it is never stored.
-  location?: Coordinates;
+  // Chosen by the customer: used as the neighborhood filter when the message does not name one.
   neighborhood?: string;
 }
 
@@ -25,7 +23,6 @@ export interface AssistantResult {
   stock: number;
   expirationDate: string;
   daysToExpire: number;
-  distanceKm: number | null;
   store: { id: string; name: string; neighborhood: string; address: string };
 }
 
@@ -41,17 +38,14 @@ export const gradeScore = (name: string) => {
   return 0;
 };
 
-const byDistance = (first: AssistantResult, second: AssistantResult) => (first.distanceKm ?? Infinity) - (second.distanceKm ?? Infinity);
-
-export const rankResults = (results: AssistantResult[], preference: SearchPreference, wantsNearby: boolean) => {
-  const tieBreak = (first: AssistantResult, second: AssistantResult) => (wantsNearby ? byDistance(first, second) : 0) || first.offerPrice - second.offerPrice || first.daysToExpire - second.daysToExpire;
+export const rankResults = (results: AssistantResult[], preference: SearchPreference) => {
+  const tieBreak = (first: AssistantResult, second: AssistantResult) => first.offerPrice - second.offerPrice || first.daysToExpire - second.daysToExpire;
   const comparators: Record<SearchPreference, (first: AssistantResult, second: AssistantResult) => number> = {
     cheapest: (first, second) => first.offerPrice - second.offerPrice || tieBreak(first, second),
     best_deal: (first, second) => second.discountPercent - first.discountPercent || tieBreak(first, second),
     best_grade: (first, second) => gradeScore(second.name) - gradeScore(first.name) || tieBreak(first, second),
-    nearest: (first, second) => byDistance(first, second) || first.offerPrice - second.offerPrice,
     expiring: (first, second) => first.daysToExpire - second.daysToExpire || second.discountPercent - first.discountPercent,
-    relevance: (first, second) => byDistance(first, second) || first.daysToExpire - second.daysToExpire || first.offerPrice - second.offerPrice,
+    relevance: (first, second) => first.daysToExpire - second.daysToExpire || first.offerPrice - second.offerPrice,
   };
   return [...results].sort(comparators[preference]);
 };
@@ -60,26 +54,32 @@ const preferenceLabels: Record<SearchPreference, string> = {
   cheapest: 'La más barata',
   best_deal: 'La de mayor descuento',
   best_grade: 'La de mejor categoría',
-  nearest: 'La más cercana',
   expiring: 'La que vence primero',
   relevance: 'Te recomiendo',
 };
 
 const describeResult = (result: AssistantResult) => {
-  const distance = result.distanceKm === null ? '' : `, a ${formatDistance(result.distanceKm)}`;
   const discount = result.discountPercent > 0 ? ` (${result.discountPercent} % de descuento)` : '';
   const expires = result.daysToExpire === 0 ? 'vence hoy' : result.daysToExpire === 1 ? 'vence mañana' : `vence en ${result.daysToExpire} días`;
-  return `${result.name} en ${result.store.name} (${result.store.neighborhood}) a ${formatCop(result.offerPrice)}${discount}${distance}; ${expires}`;
+  return `${result.name} en ${result.store.name} (${result.store.neighborhood}) a ${formatCop(result.offerPrice)}${discount}; ${expires}`;
 };
 
-export const buildReply = (intent: SearchIntent, results: AssistantResult[], hasOrigin: boolean) => {
+// "Cerca de mí" without a neighborhood: ask for it and say where there are stores.
+export const askNeighborhood = (neighborhoods: string[]) => {
+  const shown = neighborhoods.slice(0, 6);
+  const list = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} y ${shown.at(-1)}` : (shown[0] ?? '');
+  return `Para buscar cerca de ti, dime tu barrio${list ? `. Hay tiendas en ${list}` : ''}.`;
+};
+
+export const buildReply = (intent: SearchIntent, results: AssistantResult[], neighborhoods: string[] = []) => {
   const what = intent.terms.length ? `«${intent.terms.join(' ')}»` : 'productos';
-  if (!intent.terms.length && intent.preference === 'relevance') return '¿Qué producto buscas? Escribe por ejemplo «huevos baratos» o «leche cerca de mí».';
+  const nearbyHint = intent.wantsNearby && !intent.neighborhood ? askNeighborhood(neighborhoods) : '';
+  if (!intent.terms.length && intent.preference === 'relevance') return nearbyHint || '¿Qué producto buscas? Escribe por ejemplo «huevos baratos» o «leche en Chapinero».';
   if (!results.length) return `No encontré ${what} disponibles${intent.neighborhood ? ` en ${intent.neighborhood}` : ''}. Prueba con otra palabra o revisa el catálogo.`;
   const stores = new Set(results.map((result) => result.store.id)).size;
   const inStores = stores > 1 ? ` en ${stores} tiendas` : '';
   const parts = [`Encontré ${results.length} ${results.length === 1 ? 'opción' : 'opciones'} de ${what}${inStores}. ${preferenceLabels[intent.preference]}: ${describeResult(results[0])}.`];
-  if ((intent.wantsNearby || intent.preference === 'nearest') && !hasOrigin) parts.push('Para ordenar por cercanía, comparte tu ubicación o elige tu barrio.');
+  if (nearbyHint) parts.push(nearbyHint);
   return parts.join(' ');
 };
 
@@ -90,7 +90,7 @@ const aiIntentSchema = z.object({
 
 const aiPrompt = `Interpretas búsquedas de clientes de tiendas de barrio en Colombia.
 Devuelve JSON {"terms": palabras del producto buscado (sin preferencias ni lugares), "preference": una de ${searchPreferences.join(', ')}}.
-cheapest = más barato, best_deal = mayor descuento u oferta, best_grade = mejor categoría o calidad, nearest = más cerca, expiring = por vencer.`;
+cheapest = más barato, best_deal = mayor descuento u oferta, best_grade = mejor categoría o calidad, expiring = por vencer.`;
 
 // The provider can only refine the terms and the preference; location handling always comes from local rules.
 const resolveIntent = async (message: string, neighborhoods: string[]): Promise<SearchIntent> => {
@@ -100,10 +100,10 @@ const resolveIntent = async (message: string, neighborhoods: string[]): Promise<
   const answer = await requestJson(aiPrompt, { message }, aiIntentSchema);
   if (!answer || !answer.terms.length) return local;
   const terms = [...new Set(answer.terms.map((term) => singularize(normalizeText(term))))];
-  return { ...local, terms, preference: answer.preference, wantsNearby: local.wantsNearby || answer.preference === 'nearest' };
+  return { ...local, terms, preference: answer.preference };
 };
 
-const toResult = (row: SearchRow, today: string, origin: Coordinates | null): AssistantResult => ({
+const toResult = (row: SearchRow, today: string): AssistantResult => ({
   productId: row.id,
   name: row.name,
   category: row.category,
@@ -113,7 +113,6 @@ const toResult = (row: SearchRow, today: string, origin: Coordinates | null): As
   stock: row.stock,
   expirationDate: row.expirationDate,
   daysToExpire: daysBetween(today, row.expirationDate),
-  distanceKm: origin && hasCoordinates(row) ? Math.round(distanceKm(origin, row) * 100) / 100 : null,
   store: { id: row.storeId, name: row.storeName, neighborhood: row.neighborhood, address: row.address },
 });
 
@@ -124,7 +123,7 @@ export interface ResultFilters {
 }
 
 // Real products from the database for an intent: never anything the database does not have.
-export const findResults = async (intent: SearchIntent, origin: Coordinates | null, filters: ResultFilters = {}, today = todayInBogota()) => {
+export const findResults = async (intent: SearchIntent, filters: ResultFilters = {}, today = todayInBogota()) => {
   if (!intent.terms.length && intent.preference === 'relevance' && !filters.category) return [];
   const options = {
     neighborhood: intent.neighborhood,
@@ -141,23 +140,24 @@ export const findResults = async (intent: SearchIntent, origin: Coordinates | nu
     if (rows.length) break;
   }
   if (!rows.length && intent.terms.length > 1) rows = await productRepository.search(stems(intent.terms), { ...options, matchAll: false });
-  const sellable = rows.map((row) => toResult(row, today, origin)).filter((result) => result.daysToExpire >= 0);
-  return rankResults(sellable, intent.preference, intent.wantsNearby).slice(0, filters.limit ?? maxAssistantResults);
+  const sellable = rows.map((row) => toResult(row, today)).filter((result) => result.daysToExpire >= 0);
+  return rankResults(sellable, intent.preference).slice(0, filters.limit ?? maxAssistantResults);
 };
 
-export const resolveOrigin = async (query: { location?: Coordinates; neighborhood?: string }) =>
-  query.location ?? (query.neighborhood ? await storeRepository.neighborhoodCenter(query.neighborhood) : null);
+// The neighborhood chosen by the customer filters the search when the message does not name one.
+export const withChosenNeighborhood = <T extends SearchIntent>(intent: T, chosen: string | undefined, neighborhoods: string[]): T => {
+  if (intent.neighborhood || !chosen) return intent;
+  const known = neighborhoods.find((item) => normalizeText(item) === normalizeText(chosen));
+  return known ? { ...intent, neighborhood: known } : intent;
+};
 
 export const searchAssistant = async (query: AssistantQuery, today = todayInBogota()) => {
   const neighborhoods = await storeRepository.listNeighborhoods();
-  const intent = await resolveIntent(query.message, neighborhoods);
-  const origin = await resolveOrigin(query);
-  const originType = query.location ? 'location' : origin ? 'neighborhood' : null;
-  const results = await findResults(intent, origin, {}, today);
+  const intent = withChosenNeighborhood(await resolveIntent(query.message, neighborhoods), query.neighborhood, neighborhoods);
+  const results = await findResults(intent, {}, today);
   return {
-    reply: buildReply(intent, results, origin !== null),
+    reply: buildReply(intent, results, neighborhoods),
     intent: { terms: intent.terms, preference: intent.preference, neighborhood: intent.neighborhood ?? null },
-    origin: originType,
     results,
   };
 };
