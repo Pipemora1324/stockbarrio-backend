@@ -1,5 +1,7 @@
 # StockBarrio - Backend
 
+[![CI](https://github.com/Pipemora1324/stockbarrio-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Pipemora1324/stockbarrio-backend/actions/workflows/ci.yml)
+
 API REST de StockBarrio, una aplicación de inventario para tiendas y mercados de barrio. Está hecha con Node.js, Express 5, TypeScript, Zod y PostgreSQL.
 
 El frontend (Angular) está en un repositorio aparte: [stockbarrio-frontend](https://github.com/Pipemora1324/stockbarrio-frontend).
@@ -103,6 +105,7 @@ Nunca subas el `.env` real; solo `.env.example`.
 | `npm run migrate` | Ejecuta las migraciones pendientes |
 | `npm run seed` | Carga tiendas y productos de ejemplo (manual, ver abajo) |
 | `npm test` | Corre las pruebas |
+| `npm run test:coverage` | Corre las pruebas y genera el reporte de cobertura en `coverage/` |
 | `npm run lint` | Revisa los tipos sin compilar |
 
 ## Datos de ejemplo
@@ -120,7 +123,7 @@ createdb stock_barrios_test
 TEST_DATABASE_URL=postgresql://stock:stock@localhost:5432/stock_barrios_test npm test
 ```
 
-Sin `TEST_DATABASE_URL` solo corren las pruebas unitarias.
+Sin `TEST_DATABASE_URL` solo corren las pruebas unitarias. Las pruebas se niegan a correr contra cualquier URL de Supabase y nunca usan claves reales ni salen a la red. Los detalles, la cobertura y qué cubre cada suite están en [TESTING.md](TESTING.md).
 
 ## Contrato de la API
 
