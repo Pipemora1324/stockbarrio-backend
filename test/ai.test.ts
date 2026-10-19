@@ -49,6 +49,48 @@ describe('localRecommendation', () => {
   });
 });
 
+describe('localRecommendation limits', () => {
+  it('still offers a product that expires today, but never one that expired yesterday', () => {
+    const result = localRecommendation({ budget: 50000, neighborhood: 'Centro', products: [product({ id: 'hoy', expirationDate: today }), product({ id: 'ayer', expirationDate: '2026-10-17' })] }, today);
+    assert.deepEqual(result.products.map((item) => item.productId), ['hoy']);
+  });
+
+  it('uses at most five products and three units of each', () => {
+    const many = Array.from({ length: 8 }, (_, index) => product({ id: `p${index}`, offerPrice: 1000, expirationDate: `2026-10-2${index}` }));
+    const result = localRecommendation({ budget: 1_000_000, neighborhood: 'Centro', products: many }, today);
+    assert.equal(result.products.length, 5);
+    assert.deepEqual(result.products.map((item) => item.quantity), [3, 3, 3, 3, 3]);
+    assert.deepEqual(result.products.map((item) => item.productId), ['p0', 'p1', 'p2', 'p3', 'p4']);
+  });
+
+  it('breaks ties on the same day by the biggest relative saving, then by the lowest price', () => {
+    const result = localRecommendation({
+      budget: 1_000_000,
+      neighborhood: 'Centro',
+      products: [
+        product({ id: 'poco', price: 10000, offerPrice: 9000 }),
+        product({ id: 'mitad-cara', price: 10000, offerPrice: 5000 }),
+        product({ id: 'mitad-barata', price: 4000, offerPrice: 2000 }),
+      ],
+    }, today);
+    assert.deepEqual(result.products.map((item) => item.productId), ['mitad-barata', 'mitad-cara', 'poco']);
+  });
+
+  it('fills a budget exactly and returns nothing when not even one unit fits', () => {
+    const exact = localRecommendation({ budget: 4000, neighborhood: 'Centro', products: [product({})] }, today);
+    assert.deepEqual([exact.products.length, exact.total], [1, 4000]);
+    assert.match(exact.suggestion, /combo de 1 producto por/);
+    const short = localRecommendation({ budget: 3999, neighborhood: 'Centro', products: [product({})] }, today);
+    assert.deepEqual([short.products, short.total, short.savings], [[], 0, 0]);
+  });
+
+  it('does not talk about savings when nothing is discounted', () => {
+    const result = localRecommendation({ budget: 20000, neighborhood: 'Centro', products: [product({ price: 4000, offerPrice: 4000 })] }, today);
+    assert.equal(result.savings, 0);
+    assert.doesNotMatch(result.suggestion, /ahorras/);
+  });
+});
+
 describe('getRecommendations', () => {
   afterEach(() => {
     mock.restoreAll();
