@@ -11,5 +11,12 @@ export interface AuthUser {
 }
 
 export const hashPassword = (password: string) => bcrypt.hash(password, 12);
-export const verifyPassword = (password: string, hashedPassword: string) => bcrypt.compare(password, hashedPassword);
+// A malformed stored hash must count as a failed login, never as a server error.
+export const verifyPassword = async (password: string, hashedPassword: string) => {
+  try {
+    return await bcrypt.compare(password, hashedPassword);
+  } catch {
+    return false;
+  }
+};
 export const createToken = (user: AuthUser) => jwt.sign(user, config.jwtSecret, { expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'] });
