@@ -178,20 +178,33 @@ Reglas obligatorias:
 - No pongas enlaces ni datos de contacto. Solo hablas de StockBarrio.
 Responde solo con JSON: {"reply": "tu respuesta", "refs": ["R1", ...]} donde refs son los resultados que mencionas.`;
 
-const amountsIn = (text: string) => [...text.matchAll(/\$\s?(\d{1,3}(?:\.\d{3})+|\d+)/g)].map((match) => Number(match[1].replace(/\./g, '')));
-const percentsIn = (text: string) => [...text.matchAll(/(\d{1,3})\s?%/g)].map((match) => Number(match[1]));
+const pesos = (value: string) => Number(value.replace(/\./g, ''));
+// Prices written as "$ 4.900", "4.900", "4900 pesos", "4900 COP" or "5 mil".
+const amountsIn = (text: string) => [
+  ...[...text.matchAll(/\$\s?(\d{1,3}(?:\.\d{3})+|\d+)/g)].map((match) => pesos(match[1])),
+  ...[...text.matchAll(/\b\d{1,3}(?:\.\d{3})+\b/g)].map((match) => pesos(match[0])),
+  ...[...text.matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d+)\s?(?:pesos|cop)\b/g)].map((match) => pesos(match[1])),
+  ...[...text.matchAll(/(?<![\d.,])(\d{1,3}(?:,\d{1,3})?)\s?mil\b/g)].map((match) => Math.round(Number(match[1].replace(',', '.')) * 1000)),
+];
+const percentsIn = (text: string) => [...text.matchAll(/(\d{1,3})\s?(?:%|por ciento)/g)].map((match) => Number(match[1]));
+// Distances written as "350 m", "1,2 km", "200 metros" or "3 kilometros", in the same format the app shows them.
+const distancesIn = (text: string) =>
+  [...text.matchAll(/\b(\d+(?:,\d+)?)\s?(km|kilometros?|m|metros?)\b/g)].map((match) => `${match[1]} ${match[2].startsWith('k') ? 'km' : 'm'}`);
 
-// Anti-hallucination check: every price, percent, store and reference in the reply must come from the results.
+// Anti-hallucination check: every price, percent, distance, store and reference in the reply must come from the results.
 export const isGroundedReply = (answer: z.infer<typeof composeSchema>, results: AssistantResult[], knownStores: string[], budget?: number) => {
   const refs = new Set(results.map((_, index) => `R${index + 1}`));
   if (!answer.refs.every((ref) => refs.has(ref))) return false;
   if (/https?:|www\.|@|<\/?datos|\bR\d+\b/i.test(answer.reply)) return false;
+  const text = normalizeText(answer.reply);
   const allowedAmounts = new Set(results.flatMap((result) => [result.offerPrice, result.price]));
   if (budget) allowedAmounts.add(budget);
-  if (!amountsIn(answer.reply).every((amount) => allowedAmounts.has(amount))) return false;
+  if (!amountsIn(text).every((amount) => allowedAmounts.has(amount))) return false;
   const allowedPercents = new Set(results.map((result) => result.discountPercent));
-  if (!percentsIn(answer.reply).every((percent) => allowedPercents.has(percent))) return false;
-  const reply = ` ${normalizeText(answer.reply)} `;
+  if (!percentsIn(text).every((percent) => allowedPercents.has(percent))) return false;
+  const allowedDistances = new Set(results.flatMap((result) => (result.distanceKm === null ? [] : [formatDistance(result.distanceKm)])));
+  if (!distancesIn(text).every((distance) => allowedDistances.has(distance))) return false;
+  const reply = ` ${text} `;
   const resultStores = new Set(results.map((result) => normalizeText(result.store.name)));
   return knownStores.map(normalizeText).every((store) => !store || !reply.includes(store) || resultStores.has(store));
 };
