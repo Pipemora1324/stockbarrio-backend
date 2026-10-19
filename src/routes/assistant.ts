@@ -57,7 +57,9 @@ router.post('/chat', optionalAuthenticate, ...chatLimits, async (request, respon
   try {
     const input = chatSchema.parse(request.body);
     const location = input.latitude !== undefined && input.longitude !== undefined ? { latitude: input.latitude, longitude: input.longitude } : undefined;
-    response.json({ data: await chat({ messages: input.messages, location, neighborhood: input.neighborhood }) });
+    const user = (request as AuthenticatedRequest).user;
+    const requester = user ? `user:${user.id}` : `ip:${request.ip}`;
+    response.json({ data: await chat({ messages: input.messages, location, neighborhood: input.neighborhood, requester }) });
   } catch (error) {
     next(error);
   }
