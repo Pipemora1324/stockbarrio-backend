@@ -312,3 +312,23 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
 - **Migraciones:** ninguna.
 - **Variables nuevas:** ninguna.
 - **Cómo probar:** `TEST_DATABASE_URL=postgresql://stock:stock@localhost:5544/stock_barrios_test npm run test:coverage`. Los detalles están en `TESTING.md`.
+
+## Simplificación (rama `simplificar`)
+
+- **Ubicación eliminada:**
+  - Ofertas, el chat y el buscador ya no reciben latitud, longitud ni radio. Si un cliente viejo los manda, se ignoran.
+  - El orden `nearest` ya no existe y responde 400.
+  - Ninguna respuesta trae `distanceKm` ni `origin`.
+  - Las tiendas ya no exponen latitud ni longitud, y se quitó `PUT /api/stores/me`. La tienda queda con nombre, barrio, dirección y teléfono.
+  - Las alertas pausadas quedan solo por barrio. Las antiguas por radio ya no generan avisos, para no avisar de cualquier barrio.
+  - Se borraron `src/geo.ts` (Haversine), las validaciones de coordenadas y las coordenadas del seed.
+- **Columnas y migraciones:** no se borraron ni se crearon. `latitude`, `longitude` y `radius_km` siguen en la base, pero ya no se leen ni se escriben.
+- **"Cerca de mí" en el chat:**
+  - si el mensaje nombra un barrio, o el cliente lo eligió en el chat, se filtra por ese barrio;
+  - si no, el asistente pide el barrio y dice en qué barrios hay tiendas;
+  - el anti-alucinación rechaza cualquier distancia en la respuesta del modelo.
+- **Combos eliminados:** se quitaron `POST /api/recommendations`, el recomendador (`src/services/ai.ts`) y sus pruebas. Nada más los usaba.
+- **Pruebas:** 174 en verde, con 97,8 % de líneas y 88,8 % de ramas. Se borraron las de distancias, coordenadas y combos, y se agregaron las de "cerca de mí" por barrio y las de coordenadas ignoradas.
+- **Variables nuevas:** ninguna.
+- **Migraciones:** ninguna.
+- **Cómo probar:** con el seed, pide en el chat "pollo asado cerca" (pide el barrio) y "pollo asado cerca en Suba" (solo Suba). `POST /api/offers/search` con `{ "sort": "nearest" }` responde 400.
