@@ -24,6 +24,19 @@ export const authenticate = (request: AuthenticatedRequest, response: Response, 
   }
 };
 
+// Reads the token when there is one, but lets anonymous visitors through (used for per-user limits).
+export const optionalAuthenticate = (request: AuthenticatedRequest, _response: Response, next: NextFunction) => {
+  const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
+  if (token) {
+    try {
+      request.user = jwt.verify(token, config.jwtSecret) as AuthenticatedRequest['user'];
+    } catch {
+      request.user = undefined;
+    }
+  }
+  next();
+};
+
 export const requireAdmin = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   if (request.user?.role !== 'admin') {
     response.status(403).json({ message: 'Solo los administradores pueden realizar esta operación.' });
