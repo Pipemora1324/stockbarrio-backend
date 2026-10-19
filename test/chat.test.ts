@@ -8,6 +8,7 @@ import {
   clearChatCache,
   composeMessages,
   extractBudget,
+  fitHistory,
   intentMessages,
   isGroundedReply,
   localIntent,
@@ -89,6 +90,51 @@ describe('chat helpers', () => {
     assert.equal(isGroundedReply({ reply: 'Tiene 50 % de descuento en Tienda Doña Luz.', refs: ['R1'] }, results, stores), false, 'invented percent');
     assert.equal(isGroundedReply({ reply: 'Mira la oferta en Tienda Doña Luz.', refs: ['R9'] }, results, stores), false, 'unknown reference');
     assert.equal(isGroundedReply({ reply: 'Más en https://ejemplo.com', refs: ['R1'] }, results, stores), false, 'link');
+  });
+
+  it('rejects prices, percents and distances invented in any format', () => {
+    const results = [result({ offerPrice: 27200, price: 32000, discountPercent: 15, distanceKm: 1.234 })];
+    const stores = ['Tienda Doña Luz'];
+    const grounded = (reply: string) => isGroundedReply({ reply, refs: ['R1'] }, results, stores);
+    assert.equal(grounded('En Tienda Doña Luz está a $ 27.200 (antes 32.000 pesos), con 15 por ciento menos y a 1,2 km.'), true);
+    assert.equal(grounded('Cuesta 9.900 pesos en Tienda Doña Luz.'), false, 'amount in pesos');
+    assert.equal(grounded('Lo tienes por 5 mil en Tienda Doña Luz.'), false, 'amount in mil');
+    assert.equal(grounded('Está a 27200 COP con 40 por ciento de descuento.'), false, 'percent in words');
+    assert.equal(grounded('Queda a 200 metros de ti.'), false, 'invented distance');
+    assert.equal(grounded('Queda a 3 km de ti.'), false, 'invented distance in km');
+    assert.equal(grounded('Te lo dejan en 27.200, vence mañana.'), true, 'a real price without the sign');
+  });
+
+  it('does not allow distances when the results have none', () => {
+    assert.equal(isGroundedReply({ reply: 'Está a 500 m en Tienda Doña Luz.', refs: ['R1'] }, [result({ distanceKm: null })], []), false);
+  });
+
+  it('frees the personal limit after one minute and after one day', () => {
+    Object.assign(config, { aiChatPerMinute: 2, aiChatPerDay: 3 });
+    const start = Date.parse('2026-10-19T12:00:00Z');
+    assert.deepEqual([takeAiUse('ip:1', start), takeAiUse('ip:1', start + 1), takeAiUse('ip:1', start + 2)], [true, true, false]);
+    assert.equal(takeAiUse('ip:1', start + 60_000), true, 'a new minute');
+    assert.equal(takeAiUse('ip:1', start + 120_000), false, 'the daily limit is used up');
+    assert.equal(takeAiUse('ip:1', start + 24 * 60 * 60 * 1000 + 1), true, 'the next day');
+  });
+
+  it('reads budgets in several Colombian formats and ignores impossible ones', () => {
+    assert.equal(extractBudget('tengo 20k'), 20000);
+    assert.equal(extractBudget('no más de 8.500'), 8500);
+    assert.equal(extractBudget('presupuesto de $ 12,000'), 12000);
+    assert.equal(extractBudget('tengo 0 pesos'), undefined);
+    assert.equal(extractBudget('hasta 999999999999'), undefined);
+  });
+
+  it('hides phones with the country code too', () => {
+    assert.equal(redactPersonalData('llámame al +57 310-123-4567 o al 6012345678'), 'llámame al [número] o al [número]');
+  });
+
+  it('keeps the newest message even when it alone is over the budget, cut to 300 characters', () => {
+    const turns = fitHistory([{ role: 'user', content: 'viejo' }, { role: 'user', content: 'nuevo '.repeat(100) }], 10);
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].content.length, 300);
+    assert.ok(turns[0].content.startsWith('nuevo'));
   });
 });
 
@@ -262,5 +308,43 @@ describe('chat API', { skip: integrationSkip }, () => {
     assert.ok(statuses.includes(429));
     const limited = await ask('leche otra vez');
     assert.match(limited.body.message, /Llegaste al límite de mensajes/);
+  });
+
+  it('moves to the fallback when the main provider answers something that is not valid JSON', async () => {
+    simulateProviders({
+      principal: () => new Response(JSON.stringify({ choices: [{ message: { content: 'Claro, aquí tienes una respuesta sin formato.' } }] })),
+      respaldo: (kind) => (kind === 'intent' ? chickenIntent() : { reply: 'En Asadero La Colina está a $ 18.000.', refs: ['R1'] }),
+    });
+    const response = await ask('¿qué almuerzo barato me sugieres?');
+    assert.equal(response.body.data.mode, 'ai');
+    assert.equal(response.body.data.reply, 'En Asadero La Colina está a $ 18.000.');
+  });
+
+  it('answers in basic mode when the provider times out', async () => {
+    simulateProviders({ principal: () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); } });
+    const response = await ask('¿qué me sirve para el algo?');
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.mode, 'basic');
+  });
+
+  it('greets through the model and says when its product does not exist', async () => {
+    simulateProviders({ principal: () => ({ topic: 'greeting', product: null, category: null, preference: 'relevance', neighborhood: null, budget: null }) });
+    const greeting = await ask('¿qué más, parcero?');
+    assert.deepEqual([greeting.body.data.mode, greeting.body.data.reply.startsWith('¡Hola! Soy el asistente de StockBarrio')], ['ai', true]);
+
+    clearChatCache();
+    simulateProviders({ principal: () => ({ topic: 'products', product: 'langosta', category: null, preference: 'relevance', neighborhood: null, budget: null }) });
+    const missing = await ask('algo fino del mar para una cena especial');
+    assert.equal(missing.body.data.mode, 'ai');
+    assert.match(missing.body.data.reply, /^No encontré «langosta»/);
+    assert.deepEqual(missing.body.data.results, []);
+  });
+
+  it('answers with the template when the model invents a distance', async () => {
+    simulateProviders({ principal: (kind) => (kind === 'intent' ? chickenIntent() : { reply: 'En Asadero La Colina está a $ 18.000, a solo 100 m de ti.', refs: ['R1'] }) });
+    const response = await ask('¿qué almuerzo queda cerquita?');
+    assert.equal(response.body.data.mode, 'ai');
+    assert.doesNotMatch(response.body.data.reply, /100 m/);
+    assert.match(response.body.data.reply, /Asadero La Colina/);
   });
 });
