@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { addDays, todayInBogota } from './dates.js';
-import { colombiaBounds } from './geo.js';
 
 const isRealDate = (value: string) => {
   const [year, month, day] = value.split('-').map(Number);
@@ -149,10 +148,6 @@ export const maxExpirationYears = 5;
 export const futureDateSchema = dateOnlySchema
   .refine((value) => value >= todayInBogota(), 'La fecha de vencimiento no puede estar en el pasado.')
   .refine((value) => value <= addDays(todayInBogota(), 365 * maxExpirationYears), 'La fecha de vencimiento es demasiado lejana.');
-
-export const latitudeSchema = z.coerce.number({ error: 'La latitud debe ser un número.' }).min(-90, 'La latitud debe estar entre -90 y 90.').max(90, 'La latitud debe estar entre -90 y 90.');
-export const longitudeSchema = z.coerce.number({ error: 'La longitud debe ser un número.' }).min(-180, 'La longitud debe estar entre -180 y 180.').max(180, 'La longitud debe estar entre -180 y 180.');
-export const colombiaCoordinatesMessage = `Las coordenadas quedan fuera de Colombia (latitud ${colombiaBounds.minLatitude} a ${colombiaBounds.maxLatitude}, longitud ${colombiaBounds.minLongitude} a ${colombiaBounds.maxLongitude}). Revisa que no estén invertidas.`;
 
 export const neighborhoodSchema = z
   .string({ error: 'El barrio es obligatorio.' })

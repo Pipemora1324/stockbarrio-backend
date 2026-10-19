@@ -33,8 +33,6 @@ const fieldLabels: Record<string, string> = {
   imageUrl: 'Imagen',
   budget: 'Presupuesto',
   productIds: 'Productos',
-  latitude: 'Latitud',
-  longitude: 'Longitud',
   id: 'Identificador',
 };
 
