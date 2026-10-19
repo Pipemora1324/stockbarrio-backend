@@ -1,0 +1,142 @@
+import assert from 'node:assert/strict';
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
+import { after, before, describe, it } from 'node:test';
+
+// Integration tests: they need a disposable database whose name ends in "_test".
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const canRun = Boolean(testDatabaseUrl && /_test(\?.*)?$/.test(testDatabaseUrl));
+
+describe('API', { skip: canRun ? false : 'TEST_DATABASE_URL no está definida o no termina en _test' }, () => {
+  let server: Server;
+  let baseUrl = '';
+  let pool: typeof import('../src/database.js').pool;
+
+  const call = async (method: string, path: string, body?: unknown, token?: string) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: response.status, body: (await response.json()) as Record<string, any> };
+  };
+
+  const registerStore = async (suffix: string) => {
+    const result = await call('POST', '/api/auth/register', {
+      name: `Dueña ${suffix}`,
+      email: `tienda-${suffix}@stockbarrio.test`,
+      password: 'tienda12345',
+      storeName: `Tienda ${suffix}`,
+      neighborhood: 'Chapinero',
+      address: 'Calle 1 # 2-3',
+    });
+    assert.equal(result.status, 201);
+    return result.body as { token: string; user: { id: string; storeId: string; role: string } };
+  };
+
+  const product = { name: 'Leche entera 1 L', category: 'Lácteos', price: 4900, stock: 10, expirationDate: '2026-10-20', discountPercent: 0 };
+
+  before(async () => {
+    process.env.DATABASE_URL = testDatabaseUrl;
+    const database = await import('../src/database.js');
+    pool = database.pool;
+    await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+    const { migrate } = await import('../src/migrate.js');
+    await migrate();
+    const { app } = await import('../src/app.js');
+    server = app.listen(0);
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(async () => {
+    server?.close();
+    await pool?.end();
+  });
+
+  it('does not reapply migrations that already ran', async () => {
+    const { migrate } = await import('../src/migrate.js');
+    assert.deepEqual(await migrate(), []);
+  });
+
+  it('rejects a public registration without store data instead of creating an admin', async () => {
+    const result = await call('POST', '/api/auth/register', { name: 'Colado', email: 'colado@stockbarrio.test', password: '12345678' });
+    assert.equal(result.status, 400);
+    assert.match(result.body.message, /Nombre de la tienda es obligatorio/);
+    const admins = await pool.query(`SELECT 1 FROM users WHERE role = 'admin'`);
+    assert.equal(admins.rowCount, 0);
+  });
+
+  it('registers a store with a token that carries no password hash', async () => {
+    const { token, user } = await registerStore('uno');
+    assert.equal(user.role, 'store');
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+    assert.equal(payload.password_hash, undefined);
+    assert.equal(payload.passwordHash, undefined);
+    const me = await call('GET', '/api/auth/me', undefined, token);
+    assert.equal(me.status, 200);
+    assert.equal(me.body.user.storeId, user.storeId);
+  });
+
+  it('answers 401 for an invalid token', async () => {
+    const result = await call('GET', '/api/auth/me', undefined, 'token-falso');
+    assert.equal(result.status, 401);
+  });
+
+  it('lets a store manage only its own products', async () => {
+    const owner = await registerStore('dos');
+    const other = await registerStore('tres');
+    const created = await call('POST', '/api/products', product, owner.token);
+    assert.equal(created.status, 201);
+    assert.equal(created.body.data.storeId, owner.user.storeId);
+    assert.equal(created.body.data.expirationDate, '2026-10-20');
+    assert.equal(created.body.data.offerPrice, 4900);
+
+    const id = created.body.data.id as string;
+    assert.equal((await call('PUT', `/api/products/${id}`, { stock: 1 }, other.token)).status, 403);
+    assert.equal((await call('DELETE', `/api/products/${id}`, undefined, other.token)).status, 403);
+
+    const updated = await call('PUT', `/api/products/${id}`, { discountPercent: 20 }, owner.token);
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.data.offerPrice, 3920);
+    assert.equal(updated.body.data.category, 'Lácteos');
+
+    const mine = await call('GET', '/api/products/mine', undefined, owner.token);
+    assert.equal(mine.body.data.length, 1);
+    assert.equal((await call('DELETE', `/api/products/${id}`, undefined, owner.token)).status, 200);
+    assert.equal((await call('DELETE', `/api/products/${id}`, undefined, owner.token)).status, 404);
+  });
+
+  it('keeps the old ISO date format working for older clients', async () => {
+    const owner = await registerStore('cuatro');
+    const created = await call('POST', '/api/products', { ...product, expirationDate: '2026-11-05T00:00:00.000Z' }, owner.token);
+    assert.equal(created.body.data.expirationDate, '2026-11-05');
+  });
+
+  it('forbids product writes for accounts that are not stores', async () => {
+    await pool.query(`INSERT INTO users (name, email, password_hash, role) VALUES ('Admin', 'admin@stockbarrio.test', 'x', 'admin')`);
+    const { createToken } = await import('../src/services/auth.js');
+    const admin = await pool.query<{ id: string }>(`SELECT id FROM users WHERE email = 'admin@stockbarrio.test'`);
+    const token = createToken({ id: admin.rows[0].id, name: 'Admin', email: 'admin@stockbarrio.test', role: 'admin' });
+    assert.equal((await call('POST', '/api/products', product, token)).status, 403);
+  });
+
+  it('combines optional filters with the right placeholders', async () => {
+    const owner = await registerStore('cinco');
+    await call('POST', '/api/products', { ...product, name: 'Queso campesino', category: 'Lácteos' }, owner.token);
+    await call('POST', '/api/products', { ...product, name: 'Queso crema', category: 'Untables' }, owner.token);
+    const result = await call('GET', '/api/products?category=l%C3%A1cteos&search=queso');
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.data.map((item: { name: string }) => item.name), ['Queso campesino']);
+    const onlySearch = await call('GET', '/api/products?search=queso');
+    assert.equal(onlySearch.body.data.length, 2);
+  });
+
+  it('returns Spanish validation messages and 400 for bad identifiers', async () => {
+    const owner = await registerStore('seis');
+    const invalid = await call('POST', '/api/products', { ...product, price: -1, expirationDate: '2026-02-30' }, owner.token);
+    assert.equal(invalid.status, 400);
+    assert.match(invalid.body.message, /Precio debe ser mayor que 0/);
+    assert.match(invalid.body.message, /La fecha no es válida/);
+    assert.equal((await call('GET', '/api/stores/no-es-un-uuid')).status, 400);
+  });
+});
