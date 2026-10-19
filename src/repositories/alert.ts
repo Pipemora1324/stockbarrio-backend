@@ -7,9 +7,6 @@ export interface AlertSubscriptionRecord {
   query: string | null;
   category: string | null;
   neighborhood: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  radiusKm: number | null;
   minDiscount: number;
   active: boolean;
   createdAt: Date;
@@ -25,8 +22,9 @@ export interface NotificationRecord {
   readAt: Date | null;
 }
 
+// The latitude, longitude and radius_km columns stay in the table but are no longer written nor read.
 const subscriptionColumnsOf = (alias: string) => `${alias}.id, ${alias}.user_id AS "userId", ${alias}.query, ${alias}.category, ${alias}.neighborhood,
-  ${alias}.latitude, ${alias}.longitude, ${alias}.radius_km AS "radiusKm", ${alias}.min_discount AS "minDiscount", ${alias}.active, ${alias}.created_at AS "createdAt"`;
+  ${alias}.min_discount AS "minDiscount", ${alias}.active, ${alias}.created_at AS "createdAt"`;
 const subscriptionColumns = subscriptionColumnsOf('alert_subscriptions');
 const notificationColumns = `id, title, message, product_id AS "productId", created_at AS "createdAt", read_at AS "readAt"`;
 // Start of the current day in Bogota, as a timestamp, for the daily notification limit.
@@ -40,19 +38,20 @@ export const alertRepository = {
   create: async (userId: string, values: Omit<AlertSubscriptionRecord, 'id' | 'userId' | 'active' | 'createdAt'>) =>
     (
       await database.query<AlertSubscriptionRecord>(
-        `INSERT INTO alert_subscriptions (user_id, query, category, neighborhood, latitude, longitude, radius_km, min_discount)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${subscriptionColumns}`,
-        [userId, values.query, values.category, values.neighborhood, values.latitude, values.longitude, values.radiusKm, values.minDiscount],
+        `INSERT INTO alert_subscriptions (user_id, query, category, neighborhood, min_discount)
+         VALUES ($1,$2,$3,$4,$5) RETURNING ${subscriptionColumns}`,
+        [userId, values.query, values.category, values.neighborhood, values.minDiscount],
       )
     ).rows[0],
   deactivate: async (userId: string, id: string) =>
     (await database.query('UPDATE alert_subscriptions SET active = false WHERE id = $1 AND user_id = $2 AND active = true', [id, userId])).rowCount,
-  // Candidates for a product with a given discount; text and distance matching happen in the service.
+  // Candidates for a product with a given discount; text and neighborhood matching happen in the service.
+  // Older radius alerts are left out: without distances they would match every store.
   candidatesFor: async (client: PoolClient, discountPercent: number) =>
     (
       await client.query<AlertSubscriptionRecord>(
         `SELECT ${subscriptionColumnsOf('a')} FROM alert_subscriptions a JOIN users u ON u.id = a.user_id
-         WHERE a.active = true AND a.min_discount <= $1 AND u.role = 'customer'`,
+         WHERE a.active = true AND a.min_discount <= $1 AND a.radius_km IS NULL AND u.role = 'customer'`,
         [discountPercent],
       )
     ).rows,
