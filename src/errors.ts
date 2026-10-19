@@ -31,8 +31,6 @@ const fieldLabels: Record<string, string> = {
   expirationDate: 'Fecha de vencimiento',
   discountPercent: 'Descuento',
   imageUrl: 'Imagen',
-  budget: 'Presupuesto',
-  productIds: 'Productos',
   id: 'Identificador',
 };
 
