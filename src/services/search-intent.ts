@@ -64,3 +64,31 @@ export const parseIntent = (message: string, knownNeighborhoods: string[] = []):
   const terms = [...new Set(text.split(' ').filter((word) => word.length > 1 && !stopWords.has(word)).map(singularize))].slice(0, 5);
   return { terms, preference, wantsNearby, ...(neighborhood ? { neighborhood } : {}) };
 };
+
+// Search root: drops a final "a"/"o" in longer words so "asada" finds "asado" and "tajada" finds "tajado".
+export const searchStem = (term: string) => (term.length >= 5 && /[ao]$/.test(term) ? term.slice(0, -1) : term);
+
+// Common Colombian names for the same product (accent-free, singular). Used when the literal search finds nothing.
+const synonymGroups: string[][] = [
+  ['gaseosa', 'refresco', 'soda'],
+  ['banano', 'banana', 'guineo'],
+  ['frijol', 'frejol', 'poroto'],
+  ['papa', 'patata'],
+  ['aguacate', 'palta'],
+  ['arveja', 'guisante'],
+  ['mantequilla', 'margarina'],
+  ['crispeta', 'palomita', 'maiz pira'],
+  ['salchicha', 'salchichon'],
+  ['gallina', 'pollo'],
+  ['jabon', 'detergente'],
+  ['yogur', 'yogurt', 'kumis'],
+  ['bocadillo', 'guayaba'],
+  ['tinto', 'cafe'],
+  ['panela', 'piloncillo'],
+];
+
+export const synonymsOf = (term: string) => synonymGroups.find((group) => group.includes(term))?.filter((item) => item !== term) ?? [];
+
+// Alternative term lists, replacing one term at a time by each synonym.
+export const synonymVariants = (terms: string[]) =>
+  terms.flatMap((term, index) => synonymsOf(term).map((synonym) => terms.map((item, position) => (position === index ? synonym : item))));
