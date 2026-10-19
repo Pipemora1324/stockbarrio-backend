@@ -4,6 +4,7 @@ import { database } from '../database.js';
 import { todayInBogota } from '../dates.js';
 import { conflict, notFound } from '../errors.js';
 import { productRepository } from '../repositories/product.js';
+import { storeRepository } from '../repositories/store.js';
 import { suggestionRepository, type SuggestionValues } from '../repositories/suggestion.js';
 import { analyzeInventory, priceWithDiscount, type DiscountSuggestion } from './discount-rules.js';
 import { isLlmEnabled, requestJson } from './llm.js';
@@ -78,15 +79,17 @@ export const refreshSuggestions = async (storeId: string, today = todayInBogota(
   const byId = new Map(products.map((product) => [product.id, product]));
   const local = analyzeInventory(products, today);
 
-  // Only new suggestions, or those whose percent or days changed, get a new text. Repeated visits cost nothing.
-  const snapshot = await suggestionRepository.pendingSnapshot(storeId);
-  const needText = local.filter((suggestion) => !sameNumbers(snapshot.get(suggestion.productId), suggestion));
-  const written = await writeReasonsWithAi(
-    needText.map((suggestion) => {
-      const product = byId.get(suggestion.productId)!;
-      return { ...suggestion, category: product.category, stock: product.stock, price: product.price };
-    }),
-  );
+  // One AI call per store and per day, with all its suggestions in a single batch. The texts are saved, so later
+  // visits that day reuse them; suggestions that appear later that day use the rule text.
+  const claimed = local.length > 0 && isLlmEnabled() && (await storeRepository.claimAiReasonsDay(storeId, today));
+  const written = claimed
+    ? await writeReasonsWithAi(
+        local.map((suggestion) => {
+          const product = byId.get(suggestion.productId)!;
+          return { ...suggestion, category: product.category, stock: product.stock, price: product.price };
+        }),
+      )
+    : new Map<string, string>();
 
   await database.withTransaction(async (client) => {
     const pending = await suggestionRepository.pendingByProduct(client, storeId);
@@ -95,9 +98,9 @@ export const refreshSuggestions = async (storeId: string, today = todayInBogota(
     for (const [priority, suggestion] of local.entries()) {
       const stored = pending.get(suggestion.productId);
       const aiReason = written.get(suggestion.productId);
-      const keepStoredText = stored && sameNumbers(stored, suggestion);
-      const reason = keepStoredText ? stored.reason : (aiReason ?? suggestion.reason);
-      const source = keepStoredText ? stored.source : aiReason ? 'ai' : 'local';
+      const keepStoredText = !aiReason && stored && sameNumbers(stored, suggestion);
+      const reason = aiReason ?? (keepStoredText ? stored.reason : suggestion.reason);
+      const source = aiReason ? 'ai' : keepStoredText ? stored.source : 'local';
       if (stored) {
         await suggestionRepository.update(client, stored.id, toValues(suggestion, priority, reason, source));
         kept.add(suggestion.productId);

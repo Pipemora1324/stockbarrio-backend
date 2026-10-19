@@ -66,14 +66,6 @@ export const suggestionRepository = {
     );
     return new Map(result.rows.map((row) => [row.productId, row]));
   },
-  // Same as pendingByProduct but without locking, to decide which texts must be written before opening a transaction.
-  pendingSnapshot: async (storeId: string) => {
-    const result = await database.query<{ productId: string; suggestedPercent: number; daysToExpire: number }>(
-      `SELECT product_id AS "productId", suggested_percent AS "suggestedPercent", days_to_expire AS "daysToExpire" FROM discount_suggestions WHERE store_id = $1 AND status = 'pending'`,
-      [storeId],
-    );
-    return new Map(result.rows.map((row) => [row.productId, row]));
-  },
   insert: (client: PoolClient, storeId: string, values: SuggestionValues) =>
     client.query(
       `INSERT INTO discount_suggestions (product_id, store_id, current_percent, suggested_percent, suggested_price, days_to_expire, reason, priority, source)
