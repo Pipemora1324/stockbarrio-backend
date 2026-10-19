@@ -15,17 +15,17 @@ export interface TestContext {
   pool: typeof import('../../src/database.js').pool;
   // Visitor IP sent through the trusted proxy header, so each test can have its own rate limits.
   clientIp?: string;
+  baseUrl: string;
   call: (method: string, path: string, body?: unknown, token?: string) => Promise<{ status: number; body: Record<string, any> }>;
   registerStore: (suffix: string, extra?: Record<string, unknown>) => Promise<{ token: string; user: { id: string; storeId: string; role: string } }>;
 }
 
 export const useTestApi = (): TestContext => {
   let server: Server | undefined;
-  let baseUrl = '';
   const context = {} as TestContext;
 
   context.call = async (method, path, body, token) => {
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(`${context.baseUrl}${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -61,7 +61,7 @@ export const useTestApi = (): TestContext => {
     await migrate();
     const { app } = await import('../../src/app.js');
     server = app.listen(0);
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    context.baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
   after(async () => {
