@@ -70,8 +70,13 @@ Levanta PostgreSQL (puerto 5432) y la API (puerto 3000). Puedes sobrescribir `JW
 | `OPENAI_BASE_URL` | URL base del proveedor | `https://api.openai.com/v1` |
 | `AI_TIMEOUT_MS` | Tiempo máximo de espera del proveedor | `8000` |
 | `NOTIFICATIONS_DAILY_LIMIT` | Máximo de notificaciones por cliente al día (hora de Bogotá) | `10` |
-| `AI_FALLBACK_BASE_URL` / `AI_FALLBACK_MODEL` / `AI_FALLBACK_API_KEY` | Proveedor de respaldo compatible con OpenAI (opcional) | vacío |
-| `AI_MAX_TOKENS` | Máximo de tokens por respuesta del proveedor | `700` |
+| `AI_MODELS` | Cadena de modelos del principal, separados por comas. Si no está, se usa solo `OPENAI_MODEL` | vacío |
+| `AI_FALLBACK_BASE_URL` / `AI_FALLBACK_API_KEY` | Proveedor de respaldo compatible con OpenAI (opcional) | vacío |
+| `AI_FALLBACK_MODELS` | Cadena de modelos del respaldo (también acepta un solo `AI_FALLBACK_MODEL`) | vacío |
+| `AI_MAX_TOKENS` / `AI_MAX_PROMPT_TOKENS` | Tokens máximos de respuesta y de prompt | `300` / `700` |
+| `AI_REQUESTS_PER_MINUTE` / `AI_REQUESTS_PER_DAY` / `AI_TOKENS_PER_MINUTE` / `AI_TOKENS_PER_DAY` | Presupuesto por modelo del principal | `28` / `950` / `7000` / `150000` |
+| `AI_FALLBACK_REQUESTS_PER_MINUTE` / `AI_FALLBACK_REQUESTS_PER_DAY` / `AI_FALLBACK_TOKENS_PER_MINUTE` / `AI_FALLBACK_TOKENS_PER_DAY` | Presupuesto por modelo del respaldo | `5` / `20` / `7000` / `150000` |
+| `AI_CHAT_PER_MINUTE` / `AI_CHAT_PER_DAY` | Mensajes del chat que usan IA, por usuario o IP | `5` / `30` |
 | `AI_CACHE_TTL_MS` | Tiempo de la caché de preguntas idénticas del chat | `60000` |
 | `CHAT_RATE_PER_MINUTE` / `CHAT_RATE_PER_DAY` | Límite de mensajes del chat por IP y por usuario | `10` / `100` |
 | `APP_URL` | URL pública del frontend, para los enlaces de los correos | `http://localhost:4200` |
@@ -176,37 +181,52 @@ Sobre la base se suman puntos y se ajusta así:
 
 ## IA
 
-Todo funciona sin claves: con `AI_PROVIDER=local` o sin `OPENAI_API_KEY`, el chat, las sugerencias y los combos usan reglas locales. Con un proveedor compatible con OpenAI el orden es: principal → respaldo (`AI_FALLBACK_*`) → reglas locales. Se pasa al siguiente ante 429, 5xx, timeout o una respuesta que no pase la validación.
+Todo funciona sin claves: con `AI_PROVIDER=local` o sin `OPENAI_API_KEY`, el chat, la búsqueda y las sugerencias usan reglas locales y el chat nunca falla.
 
-Gemini como principal:
+### Orden de uso
+
+1. **Reglas primero.** Búsqueda sin tildes, con plurales, raíces (asado o asada) y sinónimos (gallina o pollo, banano o guineo…). Si hay una coincidencia clara, la respuesta sale de una plantilla y no se llama al modelo (`mode: "rules"`).
+2. **Modelos principales**, en el orden de `AI_MODELS`.
+3. **Modelos de respaldo**, en el orden de `AI_FALLBACK_MODELS`.
+4. **Reglas locales** otra vez, con `mode: "basic"`.
+
+### Configuración recomendada (Groq principal, Gemini respaldo)
 
 ```bash
 AI_PROVIDER=openai
-OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-OPENAI_MODEL=gemini-2.5-flash
-OPENAI_API_KEY=tu-clave-de-gemini
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+OPENAI_MODEL=openai/gpt-oss-120b
+AI_MODELS=openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b
+OPENAI_API_KEY=tu-clave-de-groq
+AI_FALLBACK_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+AI_FALLBACK_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite
+AI_FALLBACK_API_KEY=tu-clave-de-gemini
 ```
 
-Groq como respaldo:
+### Cupos y presupuestos
 
-```bash
-AI_FALLBACK_BASE_URL=https://api.groq.com/openai/v1
-AI_FALLBACK_MODEL=llama-3.3-70b-versatile
-AI_FALLBACK_API_KEY=tu-clave-de-groq
-```
+- **Uso por modelo.** Se lleva en memoria: peticiones y tokens por minuto y por día. Los presupuestos quedan por debajo del cupo gratuito: 150K de los 200K tokens diarios y 7K de los 8K por minuto.
+- **429.** El modelo queda en pausa el tiempo de `Retry-After`; si la cuota agotada es la diaria, hasta el día siguiente (UTC). Ante 5xx, la pausa es de 30 s. Mientras tanto se usa el siguiente modelo.
+- **Tamaño de las peticiones.**
+  - Prompts de menos de 700 tokens (se recorta el historial y se envían como máximo 6 resultados).
+  - `max_tokens` de 300.
+  - Razonamiento bajo cuando el modelo lo admite: `reasoning_effort` low en gpt-oss y Gemini 2.5, none y oculto en Qwen.
+  - El razonamiento interno nunca se muestra: se descarta cualquier bloque `<think>` y solo se usa el JSON validado.
+- **Límites por persona.** 5 mensajes con IA por minuto y 30 por día (`AI_CHAT_PER_*`), por usuario o por IP. Al pasarlos, el chat sigue respondiendo con reglas.
+- **Descuentos.** Las explicaciones se piden una vez por tienda y por día, en un solo lote con todas sus sugerencias, y se guardan en la base. Las reglas siguen decidiendo el porcentaje.
+- **Combos.** No usan IA.
+- **Logs.** Nunca muestran claves: solo indican qué modelo quedó en pausa y por qué.
 
-Cómo se usa el modelo en el chat:
+### Cómo se usa el modelo en el chat
 
 1. **Intención.** Extrae la intención como JSON validado con Zod.
 2. **Datos reales.** El backend consulta la base de datos.
-3. **Respuesta.** El modelo redacta solo con esos resultados, que van entre `<datos>` y se tratan como dato no confiable.
+3. **Respuesta.** El modelo redacta solo con esos resultados, entre `<datos>` y tratados como dato no confiable.
 
 Salvaguardas:
 
-- **Anti-alucinación.** Cada precio, porcentaje, tienda y referencia de la respuesta se compara con los resultados; si no coincide, se usa la respuesta local.
-- **Privacidad.** Al proveedor nunca se envían coordenadas, correos, teléfonos ni nombres de usuarios, solo distancias redondeadas.
-- **Sin efectos.** El modelo no tiene herramientas que modifiquen nada.
-- **Sugerencias de descuento.** El modelo solo escribe la explicación, una vez por sugerencia; el porcentaje lo deciden las reglas.
+- **Anti-alucinación.** Cada precio, porcentaje, tienda y referencia se compara con los resultados; si no coincide, se usa la plantilla.
+- **Privacidad.** Al proveedor nunca se envían coordenadas, correos, teléfonos ni nombres de usuarios.
 
 ## Cuenta y correo
 
