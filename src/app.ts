@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { config } from './config.js';
+import { errorHandler } from './errors.js';
 import authRouter from './routes/auth.js';
 import productsRouter from './routes/products.js';
 import recommendationsRouter from './routes/recommendations.js';
@@ -22,9 +23,4 @@ app.use('/api/stores', storesRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/recommendations', recommendationsRouter);
 app.use((_request, response) => response.status(404).json({ message: 'La ruta no existe.' }));
-app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  console.error(error);
-  const message = error instanceof Error ? error.message : 'Ha ocurrido un error inesperado.';
-  const status = message.includes('no existe') || message.includes('obligatoria') ? 400 : 500;
-  response.status(status).json({ message: status === 500 ? 'Ha ocurrido un error inesperado.' : message });
-});
+app.use(errorHandler);
