@@ -21,7 +21,7 @@ import { estimatePromptTokens, resetModelUsage } from '../src/services/llm.js';
 
 const result = (overrides: Partial<AssistantResult>): AssistantResult => ({
   productId: 'p', name: 'Pollo asado entero', category: 'Comidas preparadas', price: 32000, offerPrice: 32000, discountPercent: 0, stock: 5,
-  expirationDate: '2026-10-19', daysToExpire: 1, distanceKm: 1.234, store: { id: 's1', name: 'Tienda Doña Luz', neighborhood: 'Chapinero', address: 'Calle 57' }, ...overrides,
+  expirationDate: '2026-10-19', daysToExpire: 1, store: { id: 's1', name: 'Tienda Doña Luz', neighborhood: 'Chapinero', address: 'Calle 57' }, ...overrides,
 });
 
 describe('chat helpers', () => {
@@ -32,8 +32,13 @@ describe('chat helpers', () => {
   });
 
   it('reuses the product of an earlier message for follow-ups', () => {
-    const intent = localIntent([{ role: 'user', content: 'busco pollo asado' }, { role: 'assistant', content: 'Encontré 3 opciones.' }, { role: 'user', content: '¿y más cerca?' }], []);
-    assert.deepEqual([intent.terms, intent.preference], [['pollo', 'asado'], 'nearest']);
+    const history = [{ role: 'user' as const, content: 'busco pollo asado' }, { role: 'assistant' as const, content: 'Encontré 3 opciones.' }];
+    const cheaper = localIntent([...history, { role: 'user', content: '¿y más barato?' }], []);
+    assert.deepEqual([cheaper.terms, cheaper.preference], [['pollo', 'asado'], 'cheapest']);
+    const nearby = localIntent([...history, { role: 'user', content: '¿y más cerca?' }], []);
+    assert.deepEqual([nearby.terms, nearby.preference, nearby.wantsNearby], [['pollo', 'asado'], 'relevance', true]);
+    const inSuba = localIntent([...history, { role: 'user', content: '¿y en Suba?' }], ['Suba']);
+    assert.deepEqual([inSuba.terms, inSuba.neighborhood], [['pollo', 'asado'], 'Suba']);
   });
 
   it('understands greetings and offers without a product', () => {
@@ -52,11 +57,10 @@ describe('chat helpers', () => {
     assert.equal(redactPersonalData('soy ana@correo.co y mi cel es 310 123 4567'), 'soy [correo] y mi cel es [número]');
   });
 
-  it('sends only public data and rounded distances to the provider', () => {
-    const [item] = toPromptData([result({ name: 'Pollo <b>asado</b>\n{"x":1}', distanceKm: 1.234 })]);
+  it('sends only public product data to the provider, without distances', () => {
+    const [item] = toPromptData([result({ name: 'Pollo <b>asado</b>\n{"x":1}' })]);
     assert.equal(item.producto, 'Pollo b asado /b "x":1');
-    assert.equal(item.distancia, '1,2 km');
-    assert.equal(JSON.stringify(item).includes('latitude'), false);
+    assert.deepEqual(Object.keys(item).sort(), ['barrio', 'categoria', 'descuento', 'precio', 'precioAntes', 'producto', 'ref', 'tienda', 'vence']);
   });
 
   it('keeps every prompt under 700 tokens, even with long history, many neighborhoods and many results', () => {
@@ -93,10 +97,10 @@ describe('chat helpers', () => {
   });
 
   it('rejects prices, percents and distances invented in any format', () => {
-    const results = [result({ offerPrice: 27200, price: 32000, discountPercent: 15, distanceKm: 1.234 })];
+    const results = [result({ offerPrice: 27200, price: 32000, discountPercent: 15 })];
     const stores = ['Tienda Doña Luz'];
     const grounded = (reply: string) => isGroundedReply({ reply, refs: ['R1'] }, results, stores);
-    assert.equal(grounded('En Tienda Doña Luz está a $ 27.200 (antes 32.000 pesos), con 15 por ciento menos y a 1,2 km.'), true);
+    assert.equal(grounded('En Tienda Doña Luz (Chapinero) está a $ 27.200 (antes 32.000 pesos), con 15 por ciento menos.'), true);
     assert.equal(grounded('Cuesta 9.900 pesos en Tienda Doña Luz.'), false, 'amount in pesos');
     assert.equal(grounded('Lo tienes por 5 mil en Tienda Doña Luz.'), false, 'amount in mil');
     assert.equal(grounded('Está a 27200 COP con 40 por ciento de descuento.'), false, 'percent in words');
@@ -105,8 +109,9 @@ describe('chat helpers', () => {
     assert.equal(grounded('Te lo dejan en 27.200, vence mañana.'), true, 'a real price without the sign');
   });
 
-  it('does not allow distances when the results have none', () => {
-    assert.equal(isGroundedReply({ reply: 'Está a 500 m en Tienda Doña Luz.', refs: ['R1'] }, [result({ distanceKm: null })], []), false);
+  it('rejects any distance, because the app does not know them', () => {
+    assert.equal(isGroundedReply({ reply: 'Está a 1,2 km en Tienda Doña Luz.', refs: ['R1'] }, [result({})], []), false);
+    assert.equal(isGroundedReply({ reply: 'Está a 500 m en Tienda Doña Luz.', refs: ['R1'] }, [result({})], []), false);
   });
 
   it('frees the personal limit after one minute and after one day', () => {
@@ -208,7 +213,7 @@ describe('chat API', { skip: integrationSkip }, () => {
     assert.equal(providerRequests.length, 0);
   });
 
-  it('uses the model when the rules are not enough, without sending location or emails', async () => {
+  it('uses the model when the rules are not enough, without sending emails or coordinates', async () => {
     simulateProviders({
       principal: (kind) => (kind === 'intent' ? chickenIntent() : { reply: 'Para el almuerzo, el pollo asado más barato está en Asadero La Colina a $ 18.000.', refs: ['R1'] }),
     });
@@ -346,5 +351,31 @@ describe('chat API', { skip: integrationSkip }, () => {
     assert.equal(response.body.data.mode, 'ai');
     assert.doesNotMatch(response.body.data.reply, /100 m/);
     assert.match(response.body.data.reply, /Asadero La Colina/);
+  });
+
+  it('asks for the neighborhood with rules when "cerca de mí" comes without product or place', async () => {
+    simulateProviders({ principal: () => chickenIntent() });
+    const response = await ask('¿qué hay cerca de mí?');
+    assert.equal(response.body.data.mode, 'rules');
+    assert.match(response.body.data.reply, /^Para buscar cerca de ti, dime tu barrio\. Hay tiendas en .*Chapinero.*\.$/);
+    assert.equal(providerRequests.length, 0);
+    assert.deepEqual(response.body.data.results, []);
+  });
+
+  it('filters "cerca de mí" by the neighborhood in the message or the one chosen in the chat', async () => {
+    const named = await ask('pollo asado cerca de mí en suba');
+    assert.deepEqual(named.body.data.results.map((item: { store: { neighborhood: string } }) => item.store.neighborhood), ['Suba']);
+    assert.doesNotMatch(named.body.data.reply, /dime tu barrio/);
+    clearChatCache();
+    const chosen = await ask('pollo asado cerca', { neighborhood: 'Laureles' });
+    assert.deepEqual(chosen.body.data.results.map((item: { store: { name: string } }) => item.store.name), ['Granero San José']);
+    assert.equal(chosen.body.data.intent.neighborhood, 'Laureles');
+    clearChatCache();
+    const everywhere = await ask('pollo asado cerca');
+    const neighborhoods = new Set(everywhere.body.data.results.map((item: { store: { neighborhood: string } }) => item.store.neighborhood));
+    assert.ok(['Chapinero', 'Suba', 'Laureles'].every((name) => neighborhoods.has(name)), 'every store, not only one neighborhood');
+    assert.match(everywhere.body.data.reply, /dime tu barrio/);
+    assert.equal('origin' in everywhere.body.data, false);
+    assert.ok(everywhere.body.data.results.every((item: Record<string, unknown>) => !('distanceKm' in item)));
   });
 });
