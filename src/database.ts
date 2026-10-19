@@ -1,5 +1,10 @@
-import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+import pg, { type PoolClient, type QueryResultRow } from 'pg';
 import { config } from './config.js';
+
+const { Pool, types } = pg;
+// DATE columns stay as plain 'YYYY-MM-DD' strings so no timezone shifts the day.
+types.setTypeParser(types.builtins.DATE, (value) => value);
+types.setTypeParser(types.builtins.NUMERIC, (value) => Number(value));
 
 export const pool = new Pool({ connectionString: config.databaseUrl, max: 20, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 2_000 });
 pool.on('error', (error) => console.error('Error de conexión con PostgreSQL:', error.message));
