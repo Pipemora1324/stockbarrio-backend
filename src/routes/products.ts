@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticate, requireAdmin, type AuthenticatedRequest } from '../middleware/auth.js';
+import { forbidden, notFound } from '../errors.js';
+import { authenticate, requireStore, type AuthenticatedRequest } from '../middleware/auth.js';
 import { productRepository } from '../repositories/product.js';
-import { database } from '../database.js';
 import { dateOnlySchema } from '../validation.js';
 
 const router = Router();
@@ -16,6 +16,17 @@ const productSchema = z.object({
   discountPercent: z.coerce.number().min(0).max(100),
   imageUrl: z.string().max(300).optional().default(''),
 });
+const updateSchema = productSchema.partial().extend({ category: z.string().trim().min(2).max(80).optional(), description: z.string().trim().max(500).optional(), imageUrl: z.string().max(300).optional() });
+const idSchema = z.object({ id: z.string().uuid() });
+const storeIdSchema = z.object({ storeId: z.string().uuid() });
+
+const getOwnedProduct = async (request: AuthenticatedRequest) => {
+  const { id } = idSchema.parse(request.params);
+  const product = await productRepository.getById(id);
+  if (!product) throw notFound('El producto no existe.');
+  if (product.storeId !== request.store!.id) throw forbidden('Este producto no pertenece a tu tienda.');
+  return product;
+};
 
 router.get('/', async (request, response, next) => {
   try {
@@ -26,32 +37,37 @@ router.get('/', async (request, response, next) => {
   }
 });
 
-router.get('/store/:storeId', async (request, response, next) => {
+router.get('/mine', authenticate, requireStore, async (request: AuthenticatedRequest, response, next) => {
   try {
-    response.json({ data: await productRepository.listByStore(request.params.storeId) });
+    response.json({ data: await productRepository.listByStore(request.store!.id), store: request.store });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/', authenticate, requireAdmin, async (request: AuthenticatedRequest, response, next) => {
+router.get('/store/:storeId', async (request, response, next) => {
+  try {
+    const { storeId } = storeIdSchema.parse(request.params);
+    response.json({ data: await productRepository.listByStore(storeId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/', authenticate, requireStore, async (request: AuthenticatedRequest, response, next) => {
   try {
     const input = productSchema.parse(request.body);
-    const store = await database.query('SELECT id FROM stores WHERE id = $1 AND user_id = $2', [request.user!.storeId, request.user!.id]);
-    if (!store.rows.length) return response.status(404).json({ message: 'La tienda no existe.' });
-    const product = await productRepository.upsert({ ...input, storeId: store.rows[0].id, expirationDate: input.expirationDate });
+    const product = await productRepository.upsert({ ...input, storeId: request.store!.id });
     response.status(201).json({ data: product, message: 'El producto se ha guardado correctamente.' });
   } catch (error) {
     next(error);
   }
 });
 
-router.put('/:id', authenticate, requireAdmin, async (request: AuthenticatedRequest, response, next) => {
+router.put('/:id', authenticate, requireStore, async (request: AuthenticatedRequest, response, next) => {
   try {
-    const input = productSchema.partial().parse(request.body);
-    const productId = String(request.params.id);
-    const current = await productRepository.getById(productId);
-    if (!current) return response.status(404).json({ message: 'El producto no existe.' });
+    const current = await getOwnedProduct(request);
+    const input = updateSchema.parse(request.body);
     const product = await productRepository.upsert({ ...current, ...input, id: current.id, storeId: current.storeId });
     response.json({ data: product, message: 'El producto se ha actualizado correctamente.' });
   } catch (error) {
@@ -59,11 +75,10 @@ router.put('/:id', authenticate, requireAdmin, async (request: AuthenticatedRequ
   }
 });
 
-router.delete('/:id', authenticate, requireAdmin, async (request, response, next) => {
+router.delete('/:id', authenticate, requireStore, async (request: AuthenticatedRequest, response, next) => {
   try {
-    const productId = String(request.params.id);
-    const deleted = await productRepository.delete(productId);
-    if (!deleted) return response.status(404).json({ message: 'El producto no existe.' });
+    const current = await getOwnedProduct(request);
+    await productRepository.delete(current.id);
     response.json({ message: 'El producto se ha eliminado correctamente.' });
   } catch (error) {
     next(error);
