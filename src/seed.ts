@@ -25,15 +25,13 @@ interface SeedStore {
   neighborhood: string;
   address: string;
   phone: string;
-  latitude: number;
-  longitude: number;
   products: SeedProduct[];
 }
 
 const seedStores: SeedStore[] = [
   {
     email: 'tienda.donaluz@stockbarrio.test', owner: 'Luz Marina Rodríguez', name: 'Tienda Doña Luz', neighborhood: 'Chapinero',
-    address: 'Calle 57 # 9-23, Bogotá', phone: '3101234567', latitude: 4.641, longitude: -74.0636,
+    address: 'Calle 57 # 9-23, Bogotá', phone: '3101234567',
     products: [
       { name: 'Leche entera 1 L', category: 'Lácteos', description: 'Bolsa de leche entera pasteurizada.', price: 4900, stock: 24, expiresInDays: 2 },
       { name: 'Huevos AA x 30', category: 'Huevos', description: 'Panal de huevos rojos AA.', price: 18500, stock: 10, expiresInDays: 9 },
@@ -45,7 +43,7 @@ const seedStores: SeedStore[] = [
   },
   {
     email: 'mercado.elporvenir@stockbarrio.test', owner: 'Jorge Enrique Pardo', name: 'Mercado El Porvenir', neighborhood: 'Teusaquillo',
-    address: 'Carrera 19 # 39-15, Bogotá', phone: '3157654321', latitude: 4.6263, longitude: -74.0771,
+    address: 'Carrera 19 # 39-15, Bogotá', phone: '3157654321',
     products: [
       { name: 'Leche deslactosada 1 L', category: 'Lácteos', description: 'Leche deslactosada en caja.', price: 5600, stock: 18, expiresInDays: 5 },
       { name: 'Huevos AA x 12', category: 'Huevos', description: 'Docena de huevos AA.', price: 7800, stock: 30, expiresInDays: 12 },
@@ -56,7 +54,7 @@ const seedStores: SeedStore[] = [
   },
   {
     email: 'autoservicio.lacolina@stockbarrio.test', owner: 'Claudia Patricia Gómez', name: 'Autoservicio La Colina', neighborhood: 'Suba',
-    address: 'Calle 138 # 58-40, Bogotá', phone: '3204567890', latitude: 4.7286, longitude: -74.0657,
+    address: 'Calle 138 # 58-40, Bogotá', phone: '3204567890',
     products: [
       { name: 'Leche entera 1,1 L', category: 'Lácteos', description: 'Leche entera en bolsa familiar.', price: 4700, stock: 50, expiresInDays: 6 },
       { name: 'Huevos A x 30', category: 'Huevos', description: 'Panal de huevos A.', price: 16900, stock: 4, expiresInDays: 3 },
@@ -68,7 +66,7 @@ const seedStores: SeedStore[] = [
   },
   {
     email: 'granero.sanjose@stockbarrio.test', owner: 'Luis Fernando Ospina', name: 'Granero San José', neighborhood: 'Laureles',
-    address: 'Circular 4 # 70-12, Medellín', phone: '3009876543', latitude: 6.2456, longitude: -75.5923,
+    address: 'Circular 4 # 70-12, Medellín', phone: '3009876543',
     products: [
       { name: 'Leche entera 1 L', category: 'Lácteos', description: 'Leche entera pasteurizada.', price: 4600, stock: 22, expiresInDays: 1 },
       { name: 'Huevos AA x 30', category: 'Huevos', description: 'Panal de huevos AA de granja.', price: 17900, stock: 8, expiresInDays: 7 },
@@ -80,7 +78,7 @@ const seedStores: SeedStore[] = [
   },
   {
     email: 'minimercado.elprado@stockbarrio.test', owner: 'Ana Milena Castro', name: 'Minimercado El Prado', neighborhood: 'El Prado',
-    address: 'Carrera 54 # 64-30, Barranquilla', phone: '3012223344', latitude: 10.9997, longitude: -74.8032,
+    address: 'Carrera 54 # 64-30, Barranquilla', phone: '3012223344',
     products: [
       { name: 'Suero costeño 250 g', category: 'Lácteos', description: 'Suero atollabuey.', price: 5400, stock: 10, expiresInDays: 2 },
       { name: 'Queso costeño 500 g', category: 'Lácteos', description: 'Queso duro salado.', price: 12500, stock: 5, expiresInDays: 8 },
@@ -139,8 +137,8 @@ const seedStore = async (client: PoolClient, store: SeedStore, passwordHash: str
   }
   const user = await client.query<{ id: string }>(`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, 'store') RETURNING id`, [store.owner, store.email, passwordHash]);
   const created = await client.query<{ id: string }>(
-    'INSERT INTO stores (user_id, name, neighborhood, address, phone, latitude, longitude) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-    [user.rows[0].id, store.name, store.neighborhood, store.address, store.phone, store.latitude, store.longitude],
+    'INSERT INTO stores (user_id, name, neighborhood, address, phone) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [user.rows[0].id, store.name, store.neighborhood, store.address, store.phone],
   );
   const storeId = created.rows[0].id;
   await client.query('UPDATE users SET store_id = $1 WHERE id = $2', [storeId, user.rows[0].id]);
