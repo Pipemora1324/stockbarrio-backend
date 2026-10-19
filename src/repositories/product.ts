@@ -1,4 +1,5 @@
 import { database } from '../database.js';
+import { priceWithDiscount } from '../services/discount-rules.js';
 
 export interface ProductRecord {
   id: string;
@@ -56,7 +57,7 @@ export const productRepository = {
   getById: async (id: string) => (await database.query<ProductRecord>(`SELECT ${productColumns} FROM products p WHERE p.id = $1 AND p.active = true`, [id])).rows[0],
   upsert: async (product: Partial<ProductRecord> & { id?: string; storeId: string; name: string; price: number; stock: number; expirationDate: string; discountPercent: number }) => {
     const id = product.id ?? crypto.randomUUID();
-    const offerPrice = Math.max(0, Math.round(product.price * (1 - product.discountPercent / 100) * 100) / 100);
+    const offerPrice = priceWithDiscount(product.price, product.discountPercent);
     const result = await database.query<ProductRecord>(
       `INSERT INTO products AS p (id, store_id, name, category, description, price, offer_price, stock, expiration_date, discount_percent, image_url, active)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true)
