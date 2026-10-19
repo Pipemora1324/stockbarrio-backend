@@ -76,7 +76,9 @@ export const buildReply = (intent: SearchIntent, results: AssistantResult[], has
   const what = intent.terms.length ? `«${intent.terms.join(' ')}»` : 'productos';
   if (!intent.terms.length && intent.preference === 'relevance') return '¿Qué producto buscas? Escribe por ejemplo «huevos baratos» o «leche cerca de mí».';
   if (!results.length) return `No encontré ${what} disponibles${intent.neighborhood ? ` en ${intent.neighborhood}` : ''}. Prueba con otra palabra o revisa el catálogo.`;
-  const parts = [`Encontré ${results.length} ${results.length === 1 ? 'opción' : 'opciones'} de ${what}. ${preferenceLabels[intent.preference]}: ${describeResult(results[0])}.`];
+  const stores = new Set(results.map((result) => result.store.id)).size;
+  const inStores = stores > 1 ? ` en ${stores} tiendas` : '';
+  const parts = [`Encontré ${results.length} ${results.length === 1 ? 'opción' : 'opciones'} de ${what}${inStores}. ${preferenceLabels[intent.preference]}: ${describeResult(results[0])}.`];
   if ((intent.wantsNearby || intent.preference === 'nearest') && !hasOrigin) parts.push('Para ordenar por cercanía, comparte tu ubicación o elige tu barrio.');
   return parts.join(' ');
 };
