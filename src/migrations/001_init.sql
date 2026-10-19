@@ -43,7 +43,3 @@ CREATE INDEX IF NOT EXISTS idx_products_expiration ON products(expiration_date);
 CREATE INDEX IF NOT EXISTS idx_products_store ON products(store_id);
 CREATE INDEX IF NOT EXISTS idx_stores_neighborhood ON stores(neighborhood);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-
-INSERT INTO users (name, email, password_hash, role)
-VALUES ('Administrador', 'admin@stockbarrios.local', '$2b$12$L4T2dQ1F2D2B4c3.WFzA0eO1pD0H3K7l8m9n1o2p', 'admin')
-ON CONFLICT (email) DO NOTHING;
