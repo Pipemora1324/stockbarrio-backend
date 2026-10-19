@@ -24,6 +24,8 @@ const stopWords = new Set([
   'comprar', 'compro', 'dame', 'muestrame', 'mostrar', 'ver', 'por', 'favor', 'porfa', 'un', 'una', 'unos', 'unas', 'el', 'la', 'los', 'las', 'de', 'del', 'en',
   'a', 'al', 'y', 'o', 'para', 'con', 'que', 'mi', 'mis', 'algo', 'algun', 'alguna', 'producto', 'productos', 'tienda', 'tiendas', 'hola', 'buenas', 'buenos',
   'dias', 'tardes', 'noches', 'mas', 'muy', 'lo', 'le', 'se', 'es', 'son', 'esta', 'estan', 'hoy', 'aqui', 'aca', 'barrio', 'sector', 'zona', 'mismo',
+  'puedo', 'puede', 'pueden', 'encontrar', 'encuentro', 'cuanto', 'cuesta', 'cuestan', 'vale', 'valen', 'precio', 'precios', 'quisiera', 'dime', 'sabes',
+  'existe', 'queda', 'quedan', 'alguna', 'alguno', 'ayudame', 'ayudas', 'y', 'tambien', 'otra', 'otro', 'opcion', 'opciones', 'mejor',
 ]);
 
 // Simple Spanish plural to singular so "huevos" matches "Huevos AA" and "panes" matches "Pan tajado".
