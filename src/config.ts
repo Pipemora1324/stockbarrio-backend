@@ -5,6 +5,9 @@ const positiveNumber = (value: string | undefined, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+// "a, b , c" -> ['a', 'b', 'c']; empty values are dropped.
+const parseList = (value: string | undefined) => (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+
 const requiredInProduction = (name: string): string => {
   const value = process.env[name];
   if (process.env.NODE_ENV === 'production' && !value) throw new Error(`La variable de entorno ${name} es obligatoria en producción.`);
@@ -27,7 +30,23 @@ export const config = {
   aiFallbackApiKey: process.env.AI_FALLBACK_API_KEY ?? '',
   aiFallbackModel: process.env.AI_FALLBACK_MODEL ?? '',
   aiFallbackBaseUrl: process.env.AI_FALLBACK_BASE_URL ?? '',
-  aiMaxTokens: positiveNumber(process.env.AI_MAX_TOKENS, 700),
+  // Ordered model chains. Free tiers limit each model separately, so when one runs out the next one is used.
+  aiModels: parseList(process.env.AI_MODELS),
+  aiFallbackModels: parseList(process.env.AI_FALLBACK_MODELS),
+  aiMaxTokens: positiveNumber(process.env.AI_MAX_TOKENS, 300),
+  aiMaxPromptTokens: positiveNumber(process.env.AI_MAX_PROMPT_TOKENS, 700),
+  // Per-model budgets kept in memory, a little under each provider's free limits.
+  aiRequestsPerMinute: positiveNumber(process.env.AI_REQUESTS_PER_MINUTE, 28),
+  aiRequestsPerDay: positiveNumber(process.env.AI_REQUESTS_PER_DAY, 950),
+  aiTokensPerMinute: positiveNumber(process.env.AI_TOKENS_PER_MINUTE, 7000),
+  aiTokensPerDay: positiveNumber(process.env.AI_TOKENS_PER_DAY, 150_000),
+  aiFallbackRequestsPerMinute: positiveNumber(process.env.AI_FALLBACK_REQUESTS_PER_MINUTE, 5),
+  aiFallbackRequestsPerDay: positiveNumber(process.env.AI_FALLBACK_REQUESTS_PER_DAY, 20),
+  aiFallbackTokensPerMinute: positiveNumber(process.env.AI_FALLBACK_TOKENS_PER_MINUTE, 7000),
+  aiFallbackTokensPerDay: positiveNumber(process.env.AI_FALLBACK_TOKENS_PER_DAY, 150_000),
+  // Messages that actually use the model, per user (or per IP for visitors). Over the limit the chat answers with rules.
+  aiChatPerMinute: positiveNumber(process.env.AI_CHAT_PER_MINUTE, 5),
+  aiChatPerDay: positiveNumber(process.env.AI_CHAT_PER_DAY, 30),
   aiCacheTtlMs: positiveNumber(process.env.AI_CACHE_TTL_MS, 60_000),
   chatRatePerMinute: positiveNumber(process.env.CHAT_RATE_PER_MINUTE, 10),
   chatRatePerDay: positiveNumber(process.env.CHAT_RATE_PER_DAY, 100),
