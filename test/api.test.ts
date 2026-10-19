@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { after, before, describe, it } from 'node:test';
@@ -56,6 +59,26 @@ describe('API', { skip: canRun ? false : 'TEST_DATABASE_URL no está definida o 
   it('does not reapply migrations that already ran', async () => {
     const { migrate } = await import('../src/migrate.js');
     assert.deepEqual(await migrate(), []);
+  });
+
+  const tablesWithoutRls = async () =>
+    (await pool.query<{ relname: string }>(`SELECT relname FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r' AND NOT relrowsecurity`)).rows.map((row) => row.relname);
+
+  it('enables row level security on every table after migrating', async () => {
+    assert.deepEqual(await tablesWithoutRls(), []);
+  });
+
+  it('enables row level security on tables created by future migrations', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'stockbarrio-migrations-'));
+    try {
+      await writeFile(join(directory, '999_future_table.sql'), 'CREATE TABLE future_table (id SERIAL PRIMARY KEY);');
+      const { migrate } = await import('../src/migrate.js');
+      assert.deepEqual(await migrate(directory), ['999_future_table.sql']);
+      assert.deepEqual(await tablesWithoutRls(), []);
+    } finally {
+      await pool.query(`DROP TABLE IF EXISTS future_table; DELETE FROM schema_migrations WHERE name = '999_future_table.sql';`);
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('rejects a public registration without store data instead of creating an admin', async () => {

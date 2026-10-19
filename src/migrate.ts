@@ -1,22 +1,36 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import type { PoolClient } from 'pg';
 import { pool } from './database.js';
 
 const migrationsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
 // Arbitrary constant so concurrent instances never run the same migration twice.
 const migrationLockKey = 724_501;
 
-export const listMigrationFiles = async (): Promise<string[]> =>
-  (await readdir(migrationsDirectory)).filter((file) => /^\d{3}_[\w-]+\.sql$/.test(file)).sort();
+export const listMigrationFiles = async (directory = migrationsDirectory): Promise<string[]> =>
+  (await readdir(directory)).filter((file) => /^\d{3}_[\w-]+\.sql$/.test(file)).sort();
 
-export const migrate = async (): Promise<string[]> => {
+const listPublicTables = async (client: PoolClient): Promise<Set<string>> => {
+  const result = await client.query<{ name: string }>(`SELECT relname AS name FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r', 'p')`);
+  return new Set(result.rows.map((row) => row.name));
+};
+
+// Every table created by a migration gets row level security (without policies) in the same transaction.
+const enableRlsOnNewTables = async (client: PoolClient, before: Set<string>): Promise<string[]> => {
+  const created = [...(await listPublicTables(client))].filter((table) => !before.has(table));
+  for (const table of created) await client.query(`ALTER TABLE public.${client.escapeIdentifier(table)} ENABLE ROW LEVEL SECURITY`);
+  return created;
+};
+
+export const migrate = async (directory = migrationsDirectory): Promise<string[]> => {
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
     name VARCHAR(200) PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`);
+  );
+  ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY;`);
   const applied: string[] = [];
-  for (const file of await listMigrationFiles()) {
+  for (const file of await listMigrationFiles(directory)) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -26,7 +40,9 @@ export const migrate = async (): Promise<string[]> => {
         await client.query('COMMIT');
         continue;
       }
-      await client.query(await readFile(resolve(migrationsDirectory, file), 'utf8'));
+      const tablesBefore = await listPublicTables(client);
+      await client.query(await readFile(resolve(directory, file), 'utf8'));
+      await enableRlsOnNewTables(client, tablesBefore);
       await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
       await client.query('COMMIT');
       applied.push(file);
