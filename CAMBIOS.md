@@ -1,0 +1,51 @@
+# Cambios en la rama `desarrollo`
+
+## Fase 2: IA de vencimientos y descuentos
+
+### Qué cambió
+
+- **Reglas de descuento** (`src/services/discount-rules.ts`). Para cada producto activo con stock se calculan los días para vencer (hora de Bogotá) y se sugiere un descuento:
+  - Base por días restantes: vence hoy 50 %, mañana 40 %, 2–3 días 30 %, 4–7 días 20 %, 8–14 días 10 %. Con más de 14 días no hay sugerencia, y los vencidos tampoco reciben descuento (hay que retirarlos).
+  - +10 puntos con 30 unidades o más, +5 con 15 o más (exceso de stock).
+  - +5 puntos si la categoría es perecedera (lácteos, panadería, frutas y verduras, carnes, carnes frías, pescados, huevos).
+  - Se redondea a múltiplos de 5, con un tope de 70 %. Solo se sugiere si supera el descuento actual.
+  - La razón se escribe en español, por ejemplo: "Vence en 2 días, tienes 30 unidades (exceso de stock), lácteos es una categoría perecedera: sugerimos 45 % de descuento."
+- **Sugerencias que la tienda aprueba o rechaza.** El descuento solo se aplica con aprobación.
+  - `GET /api/suggestions` analiza el inventario y devuelve las pendientes, de la más urgente a la menos.
+  - `POST /api/suggestions/:id/approve` aplica el descuento y recalcula el precio de oferta.
+  - `POST /api/suggestions/:id/reject` descarta la sugerencia. No vuelve a aparecer salvo que el descuento sugerido suba.
+  - `POST /api/suggestions/approve-all` aplica todas las pendientes.
+  - Todo exige el rol de tienda. Una sugerencia de otra tienda responde 404 y una ya revisada responde 409.
+- **Proveedor de IA opcional** (`src/services/llm.ts`). Con `AI_PROVIDER` distinto de `local` y `OPENAI_API_KEY`, el proveedor compatible con OpenAI puede:
+  - reescribir las razones y reordenar por prioridad;
+  - mover un descuento como máximo ±5 puntos, sin pasar del 70 % ni quedar por debajo del descuento actual.
+
+  La respuesta se valida siempre con Zod y debe incluir exactamente los mismos productos. Los precios se recalculan en el servidor. Si algo falla, se usan las reglas locales.
+- **Recomendador de combos corregido** (`POST /api/recommendations`):
+  - Prioriza lo que vence primero.
+  - Lleva el presupuesto acumulado, con un máximo de 3 unidades por producto y nunca más que el stock.
+  - Descarta lo vencido o sin stock.
+  - Si no se eligen productos, usa todos los del barrio.
+  - Si hay IA, su combo se valida (productos existentes, stock y presupuesto) y si no cumple se usa el local.
+
+  La respuesta sigue siendo compatible e incluye además `productId` y `expirationDate`.
+- **Precios con descuento** redondeados a pesos enteros.
+- **Tests.** Cada archivo de integración vacía la base de pruebas, así que los archivos corren uno a la vez. El helper verifica que la base conectada termine en `_test` antes de borrar nada.
+
+### Migraciones
+
+- `003_discount_suggestions.sql` crea la tabla `discount_suggestions`, aditiva. El migrador le activa RLS automáticamente.
+
+### Variables nuevas
+
+Ninguna. Para usar un proveedor de IA ya existen `AI_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` y `AI_TIMEOUT_MS`. Con `AI_PROVIDER=local` (el valor por defecto) no se llama a ningún servicio externo.
+
+### Cómo probarlo
+
+```bash
+TEST_DATABASE_URL=postgresql://stock:stock@localhost:5432/stock_barrios_test npm test
+npm run seed   # tiendas con productos por vencer
+npm run dev
+```
+
+Inicia sesión con `mercado.elporvenir@stockbarrio.test` / `tienda12345` y llama `GET /api/suggestions` con el token.
