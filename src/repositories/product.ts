@@ -55,7 +55,7 @@ export interface SearchRow extends ProductRecord {
 const searchableText = `translate(lower(p.name || ' ' || p.category || ' ' || p.description), 'áéíóúüñ', 'aeiouun')`;
 
 export const productRepository = {
-  search: async (terms: string[], options: { neighborhood?: string; matchAll: boolean; limit: number }) => {
+  search: async (terms: string[], options: { neighborhood?: string; category?: string; maxPrice?: number; onlyDiscounted?: boolean; matchAll: boolean; limit: number }) => {
     const params: unknown[] = [];
     const addParam = (value: unknown) => {
       params.push(value);
@@ -65,6 +65,9 @@ export const productRepository = {
     const conditions = ['p.active = true', 's.active = true', 'p.stock > 0'];
     if (termConditions.length) conditions.push(`(${termConditions.join(options.matchAll ? ' AND ' : ' OR ')})`);
     if (options.neighborhood) conditions.push(`lower(s.neighborhood) = lower(${addParam(options.neighborhood)})`);
+    if (options.category) conditions.push(`lower(p.category) = lower(${addParam(options.category)})`);
+    if (options.maxPrice) conditions.push(`p.offer_price <= ${addParam(options.maxPrice)}`);
+    if (options.onlyDiscounted) conditions.push('p.discount_percent > 0');
     const result = await database.query<SearchRow>(
       `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address, s.latitude, s.longitude
        FROM products p JOIN stores s ON s.id = p.store_id WHERE ${conditions.join(' AND ')}
