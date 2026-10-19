@@ -160,3 +160,91 @@ Las tres son aditivas, corren solas al arrancar en Render, cada una en su transa
 **Compatibilidad:** la API de `desarrollo` sigue funcionando con el frontend que hoy está en `main`. El registro sin `accountType` crea tiendas, y los campos de producto, tienda y combo solo ganan propiedades nuevas.
 
 **Pruebas:** `npm run lint`, `npm run build` y `npm test` en verde, con 75 pruebas unitarias y de integración contra Postgres local.
+
+# Rama `mejoras`
+
+## A) Validaciones (Zod es la autoridad)
+
+Todas las reglas están en `src/validation.ts`. Cada error responde 400 con un mensaje en español por campo.
+
+| Campo | Regla |
+| --- | --- |
+| Nombre de persona | Solo letras (con tildes y ñ), espacios, apóstrofe y guion; 2–60 |
+| Nombre de tienda | Letras, números y `. , - & '`; 2–80; al menos una letra |
+| Teléfono (opcional) | Celular de 10 dígitos que empieza en 3 (acepta +57), o fijo 60X + 7 dígitos; se guarda solo con dígitos |
+| Correo | Formato válido, se guarda en minúsculas, máximo 254 |
+| Contraseña | 8–72 caracteres, con letra y número, distinta del correo |
+| Producto | Nombre de 2–80 con al menos una letra; precio entero de 1 a 10.000.000; stock entero de 0 a 100.000; descuento entero de 0 a 90; vencimiento real y no pasado al crear; categoría de una lista |
+| Coordenadas | Latitud −90 a 90, longitud −180 a 180, y dentro de Colombia para tiendas y alertas |
+
+- **Categorías.** `GET /api/products/categories` devuelve la lista. Al editar se acepta la categoría que el producto ya tenía, aunque no esté en la lista, para no romper productos viejos.
+- **Login.** Sigue aceptando cualquier contraseña existente: las reglas nuevas solo aplican al crear o cambiar.
+- **Stock 0.** Se permite, porque significa agotado; precio y descuento sí deben ser enteros.
+
+## B) Ofertas
+
+- `POST /api/offers/search`: productos con descuento, con stock y no vencidos. Filtros: barrio, categoría, texto y radio desde la ubicación. Orden: `discount`, `nearest` o `expiring`. La ubicación va en el cuerpo, no en la URL, y no se guarda.
+- Las notificaciones ahora traen `productName`, para enlazar a sus ofertas.
+
+## C) IA real
+
+- **Proveedores.** Principal (`OPENAI_*`) → respaldo opcional (`AI_FALLBACK_*`) → reglas locales. Ante 429, 5xx, timeout o una respuesta inválida pasa al siguiente. Sin claves todo funciona y nunca falla.
+- **`POST /api/assistant/chat`.** Recibe `{ messages: [{ role, content }], latitude?, longitude?, neighborhood? }`. Usa los últimos 6 turnos, con mensajes de máximo 500 caracteres, y el último debe ser del cliente. Funciona así:
+  1. El modelo extrae la intención como JSON validado con Zod: tema, producto, categoría, criterio, barrio y presupuesto. Si falla, se usan reglas locales, que también reutilizan el producto de mensajes anteriores ("¿y el más barato?").
+  2. Se consulta la base de datos real.
+  3. El modelo redacta la respuesta solo con esos datos, que van entre `<datos>` como dato no confiable.
+- **Anti-alucinación.** Cada precio, porcentaje, tienda y referencia de la respuesta debe estar en los resultados; si no, se usa el texto local. Sin resultados, lo dice y sugiere ofertas reales. Si el tema no es StockBarrio, responde que solo ayuda con productos y ofertas.
+- **Privacidad.** Al proveedor no se envían coordenadas, correos ni teléfonos (se reemplazan), ni nombres de usuarios. Solo van distancias redondeadas.
+- **Límites:**
+  - 10 mensajes por minuto y 100 por día, por IP y por usuario (configurables);
+  - `max_tokens` y timeout de 8 s;
+  - caché de 60 s para preguntas idénticas.
+  - `trust proxy` activado para que los límites vean la IP real detrás de Render.
+- **Respuesta.** Trae `mode: "ai" | "basic"` y la lista de resultados para las tarjetas.
+- **Descuentos.** El modelo solo redacta la explicación de cada sugerencia. Se guarda una vez y se vuelve a pedir solo si cambian el porcentaje o los días. Las reglas deciden siempre el porcentaje, y un texto que invente números se descarta.
+- **Seed.** Agrega pollo asado en tres tiendas y completa productos que falten en tiendas ya creadas.
+
+## D) Cuenta
+
+- **Olvidé mi contraseña** (`POST /api/auth/forgot-password`):
+  - Responde siempre lo mismo, exista o no el correo, y envía en segundo plano.
+  - Límite de 5 cada 15 min por IP y de 3 por hora por correo.
+  - El token es aleatorio, de un solo uso, se guarda con hash SHA-256 y vence en 30 min.
+- **Restablecer contraseña** (`POST /api/auth/reset-password`): cambia la contraseña y sube `token_version`, lo que cierra todas las sesiones anteriores.
+- **Correo:**
+  - Con `SMTP_*` usa nodemailer 10.
+  - En desarrollo sin SMTP imprime el correo en la consola.
+  - En producción sin SMTP responde 503 "El envío de correos no está configurado todavía…".
+- **Perfil** (`/api/account`):
+  - `GET` devuelve los datos de la cuenta.
+  - `PATCH /name` cambia el nombre.
+  - `POST /password` pide la contraseña actual, devuelve un token nuevo y cierra las demás sesiones.
+  - `POST /email` pide la contraseña actual, envía un enlace al correo nuevo y avisa al viejo.
+  - `POST /email/confirm` cambia el correo y cierra las sesiones.
+- **Sesiones.** Las que traen un token anterior al último cambio, o de una cuenta borrada, responden 401.
+
+## Migraciones
+
+- `006_account_security.sql`, aditiva:
+  - agrega `users.token_version` (por defecto 0);
+  - amplía `users.email` a 254 caracteres (sin reescribir datos);
+  - crea `password_reset_tokens` y `email_change_tokens`, con RLS automático.
+
+## Variables nuevas para Render
+
+| Variable | Obligatoria | Uso |
+| --- | --- | --- |
+| `APP_URL` | Sí, si vas a enviar correos | URL pública del frontend en Vercel, para los enlaces de los correos |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | No | Sin ellas, "olvidé mi contraseña" responde que el correo no está configurado |
+| `AI_PROVIDER` (distinto de `local`), `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | No | Para usar IA real (por ejemplo Gemini) |
+| `AI_FALLBACK_API_KEY`, `AI_FALLBACK_BASE_URL`, `AI_FALLBACK_MODEL` | No | Respaldo (por ejemplo Groq) |
+| `AI_MAX_TOKENS`, `AI_CACHE_TTL_MS`, `CHAT_RATE_PER_MINUTE`, `CHAT_RATE_PER_DAY` | No | Tienen valores por defecto |
+
+## Cómo probar
+
+```bash
+TEST_DATABASE_URL=postgresql://stock:stock@localhost:5432/stock_barrios_test npm test   # 119 pruebas, con proveedores simulados
+npm run seed && npm run dev
+curl -X POST localhost:3000/api/assistant/chat -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"¿dónde puedo encontrar pollo asado?"}]}'
+curl -X POST localhost:3000/api/auth/forgot-password -H 'content-type: application/json' -d '{"email":"cliente.demo@stockbarrio.test"}'   # el enlace sale en la consola
+```
