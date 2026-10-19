@@ -13,6 +13,8 @@ export const integrationSkip = usableTestUrl ? false : 'TEST_DATABASE_URL no est
 
 export interface TestContext {
   pool: typeof import('../../src/database.js').pool;
+  // Visitor IP sent through the trusted proxy header, so each test can have its own rate limits.
+  clientIp?: string;
   call: (method: string, path: string, body?: unknown, token?: string) => Promise<{ status: number; body: Record<string, any> }>;
   registerStore: (suffix: string, extra?: Record<string, unknown>) => Promise<{ token: string; user: { id: string; storeId: string; role: string } }>;
 }
@@ -25,7 +27,11 @@ export const useTestApi = (): TestContext => {
   context.call = async (method, path, body, token) => {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(context.clientIp ? { 'X-Forwarded-For': context.clientIp } : {}),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { status: response.status, body: (await response.json()) as Record<string, any> };
