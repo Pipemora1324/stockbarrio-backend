@@ -17,6 +17,8 @@ import suggestionsRouter from './routes/suggestions.js';
 
 export const app = express();
 app.disable('x-powered-by');
+// Render puts one proxy in front of the API: trust it so rate limits see the visitor IP and not the proxy.
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin.split(',').map((origin) => origin.trim()), credentials: true }));
 app.use(express.json({ limit: '1mb' }));
