@@ -6,7 +6,7 @@ import { productRepository, type SearchRow } from '../repositories/product.js';
 import { storeRepository } from '../repositories/store.js';
 import { normalizeText } from './discount-rules.js';
 import { requestJson } from './llm.js';
-import { parseIntent, searchPreferences, singularize, type SearchIntent, type SearchPreference } from './search-intent.js';
+import { parseIntent, searchPreferences, searchStem, singularize, synonymVariants, type SearchIntent, type SearchPreference } from './search-intent.js';
 
 export interface AssistantQuery {
   message: string;
@@ -95,6 +95,8 @@ cheapest = más barato, best_deal = mayor descuento u oferta, best_grade = mejor
 // The provider can only refine the terms and the preference; location handling always comes from local rules.
 const resolveIntent = async (message: string, neighborhoods: string[]): Promise<SearchIntent> => {
   const local = parseIntent(message, neighborhoods);
+  // The rules already understood the product: no need to spend the model quota.
+  if (local.terms.length || local.preference !== 'relevance') return local;
   const answer = await requestJson(aiPrompt, { message }, aiIntentSchema);
   if (!answer || !answer.terms.length) return local;
   const terms = [...new Set(answer.terms.map((term) => singularize(normalizeText(term))))];
@@ -131,8 +133,14 @@ export const findResults = async (intent: SearchIntent, origin: Coordinates | nu
     onlyDiscounted: intent.preference === 'best_deal' && !intent.terms.length,
     limit: candidateLimit,
   };
-  let rows = await productRepository.search(intent.terms, { ...options, matchAll: true });
-  if (!rows.length && intent.terms.length > 1) rows = await productRepository.search(intent.terms, { ...options, matchAll: false });
+  const stems = (terms: string[]) => terms.map(searchStem);
+  let rows = await productRepository.search(stems(intent.terms), { ...options, matchAll: true });
+  // Accent-free search first, then common synonyms, and only then any of the words.
+  for (const variant of rows.length ? [] : synonymVariants(intent.terms)) {
+    rows = await productRepository.search(stems(variant), { ...options, matchAll: true });
+    if (rows.length) break;
+  }
+  if (!rows.length && intent.terms.length > 1) rows = await productRepository.search(stems(intent.terms), { ...options, matchAll: false });
   const sellable = rows.map((row) => toResult(row, today, origin)).filter((result) => result.daysToExpire >= 0);
   return rankResults(sellable, intent.preference, intent.wantsNearby).slice(0, filters.limit ?? maxAssistantResults);
 };
