@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # Disposable database that only lives during the job. The password is not a secret: nothing else can reach it.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: stock
+          POSTGRES_PASSWORD: stock
+          POSTGRES_DB: stock_barrios_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stock -d stock_barrios_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://stock:stock@localhost:5432/stock_barrios_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run test:coverage
+      - name: Guardar el reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-backend
+          path: coverage/
+          retention-days: 7

@@ -49,4 +49,15 @@ describe('offers API', { skip: integrationSkip }, () => {
     assert.equal(result.status, 400);
     assert.match(result.body.message, /comparte tu ubicación/);
   });
+
+  it('keeps an offer until the end of its expiration day and hides it the day after', async () => {
+    const { token } = await registerStore('ofertas-borde', { storeName: 'Tienda Borde', neighborhood: 'Usaquén' });
+    const fresh = await call('POST', '/api/products', { name: 'Yogur de hoy', category: 'Lácteos', price: 5000, stock: 3, discountPercent: 50, expirationDate: today }, token);
+    const old = await call('POST', '/api/products', { name: 'Yogur de ayer', category: 'Lácteos', price: 5000, stock: 3, discountPercent: 50, expirationDate: today }, token);
+    await context.pool.query('UPDATE products SET expiration_date = $2 WHERE id = $1', [old.body.data.id, addDays(today, -1)]);
+    const result = await call('POST', '/api/offers/search', { neighborhood: 'Usaquén' });
+    assert.deepEqual(names(result.body), ['Yogur de hoy']);
+    assert.equal(result.body.data[0].offerPrice, 2500);
+    assert.equal(result.body.data[0].productId, fresh.body.data.id);
+  });
 });

@@ -25,4 +25,29 @@ describe('geo', () => {
     assert.equal(isInColombia({ latitude: 4.64, longitude: -74.06 }), true);
     assert.equal(isInColombia({ latitude: -74.06, longitude: 4.64 }), false);
   });
+
+  it('is symmetric and stays finite for the farthest points', () => {
+    const leticia = { latitude: -4.2153, longitude: -69.9406 };
+    const sanAndres = { latitude: 12.5847, longitude: -81.7006 };
+    assert.equal(distanceKm(leticia, sanAndres), distanceKm(sanAndres, leticia));
+    assert.ok(Math.abs(distanceKm(leticia, sanAndres) - 2275) < 25);
+    const antipode = distanceKm({ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 180 });
+    assert.ok(Math.abs(antipode - Math.PI * 6371) < 0.001);
+  });
+
+  it('shows meters below 1 km and never "1000 m"', () => {
+    assert.equal(formatDistance(0), '50 m');
+    assert.equal(formatDistance(0.974), '950 m');
+    assert.equal(formatDistance(0.98), '1,0 km');
+    assert.equal(formatDistance(0.999), '1,0 km');
+    assert.equal(formatDistance(1.04), '1,0 km');
+    assert.equal(formatDistance(12.06), '12,1 km');
+  });
+
+  it('accepts the far ends of the country, including the islands and the Amazon', () => {
+    assert.equal(isInColombia({ latitude: 12.5847, longitude: -81.7006 }), true, 'San Andrés');
+    assert.equal(isInColombia({ latitude: -4.2153, longitude: -69.9406 }), true, 'Leticia');
+    assert.equal(isInColombia({ latitude: 0, longitude: 0 }), false);
+    assert.equal(isInColombia({ latitude: 40.4168, longitude: -3.7038 }), false, 'Madrid');
+  });
 });

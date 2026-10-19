@@ -23,4 +23,8 @@ export const colombiaBounds = { minLatitude: -4.3, maxLatitude: 13.6, minLongitu
 export const isInColombia = ({ latitude, longitude }: Coordinates) =>
   latitude >= colombiaBounds.minLatitude && latitude <= colombiaBounds.maxLatitude && longitude >= colombiaBounds.minLongitude && longitude <= colombiaBounds.maxLongitude;
 
-export const formatDistance = (km: number) => (km < 1 ? `${Math.max(50, Math.round((km * 1000) / 50) * 50)} m` : `${km.toFixed(1).replace('.', ',')} km`);
+// Meters in steps of 50 under 1 km; anything that rounds to 1000 m or more is shown in km.
+export const formatDistance = (km: number) => {
+  const meters = Math.max(50, Math.round((km * 1000) / 50) * 50);
+  return meters < 1000 ? `${meters} m` : `${Math.max(1, km).toFixed(1).replace('.', ',')} km`;
+};

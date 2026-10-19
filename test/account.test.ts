@@ -10,7 +10,10 @@ describe('account API', { skip: integrationSkip }, () => {
   let outbox: MailMessage[] = [];
   const original = { ...config };
 
+  let visitor = 0;
   beforeEach(() => {
+    // Every test is a different visitor, so the per-IP limits of one test do not affect the next.
+    context.clientIp = `10.0.0.${++visitor}`;
     outbox = [];
     useMailTransport(async (message) => {
       outbox.push(message);
@@ -111,5 +114,99 @@ describe('account API', { skip: integrationSkip }, () => {
     assert.equal(confirmed.status, 200);
     assert.equal((await call('POST', '/api/auth/login', { email: 'nuevo.correo@stockbarrio.test', password })).status, 200);
     assert.equal((await call('POST', '/api/account/email/confirm', { token: linkToken(confirmation) })).status, 400);
+  });
+
+  it('keeps only the newest reset link and does not spend it on a rejected password', async () => {
+    const { email } = await registerCustomer('ultimo');
+    await call('POST', '/api/auth/forgot-password', { email });
+    const first = linkToken(await waitForMail());
+    outbox = [];
+    await call('POST', '/api/auth/forgot-password', { email });
+    const second = linkToken(await waitForMail());
+    assert.equal((await call('POST', '/api/auth/reset-password', { token: first, password: 'nuevaClave2026' })).status, 400, 'the older link stops working');
+
+    const sameAsEmail = await call('POST', '/api/auth/reset-password', { token: second, password: email });
+    assert.equal(sameAsEmail.status, 400);
+    assert.equal((await call('POST', '/api/auth/reset-password', { token: second, password: 'nuevaClave2026' })).status, 200, 'the link survives a rejected attempt');
+  });
+
+  it('does not accept a link of one kind for the other', async () => {
+    const { token, password, email } = await registerCustomer('tipos');
+    await call('POST', '/api/account/email', { newEmail: 'tipos.nuevo@stockbarrio.test', currentPassword: password }, token);
+    await waitForMail();
+    const emailLink = linkToken(outbox.find((message) => message.to === 'tipos.nuevo@stockbarrio.test')!);
+    assert.equal((await call('POST', '/api/auth/reset-password', { token: emailLink, password: 'nuevaClave2026' })).status, 400);
+    outbox = [];
+    await call('POST', '/api/auth/forgot-password', { email });
+    const resetLink = linkToken(await waitForMail());
+    assert.equal((await call('POST', '/api/account/email/confirm', { token: resetLink })).status, 400);
+    assert.equal((await call('POST', '/api/account/email/confirm', { token: 'x'.repeat(10) })).status, 400, 'too short');
+  });
+
+  it('rejects password changes that reuse the current password or the email', async () => {
+    const { token, email } = await registerCustomer('igual');
+    const same = await call('POST', '/api/account/password', { currentPassword: 'cliente12345', newPassword: 'cliente12345' }, token);
+    assert.equal(same.status, 400);
+    assert.match(same.body.message, /distinta de la actual/);
+    const asEmail = await call('POST', '/api/account/password', { currentPassword: 'cliente12345', newPassword: email }, token);
+    assert.equal(asEmail.status, 400);
+    assert.equal((await call('POST', '/api/account/password', { newPassword: 'nuevaClave2026' }, token)).status, 400, 'the current password is required');
+    assert.equal((await call('GET', '/api/auth/me', undefined, token)).status, 200, 'failed attempts keep the session');
+  });
+
+  it('asks for the right password and a different address before changing the email', async () => {
+    const { token, email, password } = await registerCustomer('mismo');
+    const wrong = await call('POST', '/api/account/email', { newEmail: 'otro.mismo@stockbarrio.test', currentPassword: 'equivocada1' }, token);
+    assert.equal(wrong.status, 400);
+    assert.match(wrong.body.message, /contraseña actual no es correcta/);
+    const same = await call('POST', '/api/account/email', { newEmail: email.toUpperCase(), currentPassword: password }, token);
+    assert.equal(same.status, 400);
+    assert.match(same.body.message, /igual al actual/);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(outbox.length, 0, 'nothing is sent for rejected requests');
+  });
+
+  it('does not confirm an email that another account took in the meantime', async () => {
+    const { token, password } = await registerCustomer('carrera');
+    await call('POST', '/api/account/email', { newEmail: 'disputado@stockbarrio.test', currentPassword: password }, token);
+    await waitForMail();
+    const link = linkToken(outbox.find((message) => message.to === 'disputado@stockbarrio.test')!);
+    await call('POST', '/api/auth/register', { accountType: 'customer', name: 'Quien Llegó Antes', email: 'disputado@stockbarrio.test', password: 'cliente12345' });
+    const result = await call('POST', '/api/account/email/confirm', { token: link });
+    assert.equal(result.status, 409);
+    const profile = await call('GET', '/api/account', undefined, token);
+    assert.equal(profile.status, 200, 'the session stays open because nothing changed');
+    assert.equal(profile.body.data.email, 'cuenta-carrera@stockbarrio.test');
+  });
+
+  it('closes every open session after the email changes', async () => {
+    const { token, password, email } = await registerCustomer('sesiones');
+    const otherDevice = (await call('POST', '/api/auth/login', { email, password })).body.token as string;
+    await call('POST', '/api/account/email', { newEmail: 'sesiones.nuevo@stockbarrio.test', currentPassword: password }, token);
+    await waitForMail();
+    await call('POST', '/api/account/email/confirm', { token: linkToken(outbox.find((message) => message.to === 'sesiones.nuevo@stockbarrio.test')!) });
+    assert.equal((await call('GET', '/api/auth/me', undefined, token)).status, 401);
+    assert.equal((await call('GET', '/api/auth/me', undefined, otherDevice)).status, 401);
+    assert.equal((await call('POST', '/api/auth/login', { email, password })).status, 401, 'the old email no longer signs in');
+  });
+
+  it('needs a session for every profile endpoint', async () => {
+    for (const [method, path] of [['GET', '/api/account'], ['PATCH', '/api/account/name'], ['POST', '/api/account/password'], ['POST', '/api/account/email']])
+      assert.equal((await call(method, path, method === 'GET' ? undefined : {})).status, 401, `${method} ${path}`);
+  });
+
+  it('limits reset requests per visitor and per email', async () => {
+    for (let attempt = 1; attempt <= 5; attempt++) assert.equal((await call('POST', '/api/auth/forgot-password', { email: `limite-${attempt}@stockbarrio.test` })).status, 200);
+    const perIp = await call('POST', '/api/auth/forgot-password', { email: 'limite-6@stockbarrio.test' });
+    assert.equal(perIp.status, 429);
+    assert.match(perIp.body.message, /demasiadas solicitudes/);
+
+    // From many addresses, a single inbox still gets at most three requests per hour.
+    const statuses = [];
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      context.clientIp = `10.1.0.${attempt}`;
+      statuses.push((await call('POST', '/api/auth/forgot-password', { email: attempt % 2 ? 'Inundada@stockbarrio.test' : ' inundada@StockBarrio.test' })).status);
+    }
+    assert.deepEqual(statuses, [200, 200, 200, 429]);
   });
 });
