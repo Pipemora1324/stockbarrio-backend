@@ -20,6 +20,7 @@ export interface NotificationRecord {
   title: string;
   message: string;
   productId: string | null;
+  productName?: string | null;
   createdAt: Date;
   readAt: Date | null;
 }
@@ -58,8 +59,15 @@ export const alertRepository = {
 };
 
 export const notificationRepository = {
+  // Includes the product name so the inbox can link to its current offers.
   listByUser: async (userId: string, limit = 50) =>
-    (await database.query<NotificationRecord>(`SELECT ${notificationColumns} FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [userId, limit])).rows,
+    (
+      await database.query<NotificationRecord>(
+        `SELECT n.id, n.title, n.message, n.product_id AS "productId", p.name AS "productName", n.created_at AS "createdAt", n.read_at AS "readAt"
+         FROM notifications n LEFT JOIN products p ON p.id = n.product_id WHERE n.user_id = $1 ORDER BY n.created_at DESC LIMIT $2`,
+        [userId, limit],
+      )
+    ).rows,
   unreadCount: async (userId: string) =>
     Number((await database.query<{ count: string }>('SELECT COUNT(*) AS count FROM notifications WHERE user_id = $1 AND read_at IS NULL', [userId])).rows[0].count),
   markRead: async (userId: string, id: string) =>
