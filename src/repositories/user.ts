@@ -5,7 +5,7 @@ export interface UserRecord {
   name: string;
   email: string;
   passwordHash: string;
-  role: 'admin' | 'store';
+  role: 'admin' | 'store' | 'customer';
   storeId?: string;
   createdAt: Date;
 }

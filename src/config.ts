@@ -18,4 +18,6 @@ export const config = {
   openAiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
   openAiBaseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
   aiTimeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 8000),
+  // Maximum in-app notifications a customer can receive per day (Bogota time), to avoid spam.
+  notificationsDailyLimit: Math.max(1, Number(process.env.NOTIFICATIONS_DAILY_LIMIT ?? 10)),
 };

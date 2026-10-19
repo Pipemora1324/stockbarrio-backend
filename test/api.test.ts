@@ -1,60 +1,15 @@
+import { integrationSkip, useTestApi } from './helpers/api.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
-import { after, before, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 
-// Integration tests: they need a disposable database whose name ends in "_test".
-const testDatabaseUrl = process.env.TEST_DATABASE_URL;
-const canRun = Boolean(testDatabaseUrl && /_test(\?.*)?$/.test(testDatabaseUrl));
-
-describe('API', { skip: canRun ? false : 'TEST_DATABASE_URL no está definida o no termina en _test' }, () => {
-  let server: Server;
-  let baseUrl = '';
-  let pool: typeof import('../src/database.js').pool;
-
-  const call = async (method: string, path: string, body?: unknown, token?: string) => {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method,
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    return { status: response.status, body: (await response.json()) as Record<string, any> };
-  };
-
-  const registerStore = async (suffix: string) => {
-    const result = await call('POST', '/api/auth/register', {
-      name: `Dueña ${suffix}`,
-      email: `tienda-${suffix}@stockbarrio.test`,
-      password: 'tienda12345',
-      storeName: `Tienda ${suffix}`,
-      neighborhood: 'Chapinero',
-      address: 'Calle 1 # 2-3',
-    });
-    assert.equal(result.status, 201);
-    return result.body as { token: string; user: { id: string; storeId: string; role: string } };
-  };
+describe('API', { skip: integrationSkip }, () => {
+  const context = useTestApi();
+  const { call, registerStore } = context;
 
   const product = { name: 'Leche entera 1 L', category: 'Lácteos', price: 4900, stock: 10, expirationDate: '2026-10-20', discountPercent: 0 };
-
-  before(async () => {
-    process.env.DATABASE_URL = testDatabaseUrl;
-    const database = await import('../src/database.js');
-    pool = database.pool;
-    await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-    const { migrate } = await import('../src/migrate.js');
-    await migrate();
-    const { app } = await import('../src/app.js');
-    server = app.listen(0);
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  });
-
-  after(async () => {
-    server?.close();
-    await pool?.end();
-  });
 
   it('does not reapply migrations that already ran', async () => {
     const { migrate } = await import('../src/migrate.js');
@@ -62,7 +17,7 @@ describe('API', { skip: canRun ? false : 'TEST_DATABASE_URL no está definida o 
   });
 
   const tablesWithoutRls = async () =>
-    (await pool.query<{ relname: string }>(`SELECT relname FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r' AND NOT relrowsecurity`)).rows.map((row) => row.relname);
+    (await context.pool.query<{ relname: string }>(`SELECT relname FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r' AND NOT relrowsecurity`)).rows.map((row) => row.relname);
 
   it('enables row level security on every table after migrating', async () => {
     assert.deepEqual(await tablesWithoutRls(), []);
@@ -76,7 +31,7 @@ describe('API', { skip: canRun ? false : 'TEST_DATABASE_URL no está definida o 
       assert.deepEqual(await migrate(directory), ['999_future_table.sql']);
       assert.deepEqual(await tablesWithoutRls(), []);
     } finally {
-      await pool.query(`DROP TABLE IF EXISTS future_table; DELETE FROM schema_migrations WHERE name = '999_future_table.sql';`);
+      await context.pool.query(`DROP TABLE IF EXISTS future_table; DELETE FROM schema_migrations WHERE name = '999_future_table.sql';`);
       await rm(directory, { recursive: true, force: true });
     }
   });
@@ -85,7 +40,7 @@ describe('API', { skip: canRun ? false : 'TEST_DATABASE_URL no está definida o 
     const result = await call('POST', '/api/auth/register', { name: 'Colado', email: 'colado@stockbarrio.test', password: '12345678' });
     assert.equal(result.status, 400);
     assert.match(result.body.message, /Nombre de la tienda es obligatorio/);
-    const admins = await pool.query(`SELECT 1 FROM users WHERE role = 'admin'`);
+    const admins = await context.pool.query(`SELECT 1 FROM users WHERE role = 'admin'`);
     assert.equal(admins.rowCount, 0);
   });
 
@@ -136,9 +91,9 @@ describe('API', { skip: canRun ? false : 'TEST_DATABASE_URL no está definida o 
   });
 
   it('forbids product writes for accounts that are not stores', async () => {
-    await pool.query(`INSERT INTO users (name, email, password_hash, role) VALUES ('Admin', 'admin@stockbarrio.test', 'x', 'admin')`);
+    await context.pool.query(`INSERT INTO users (name, email, password_hash, role) VALUES ('Admin', 'admin@stockbarrio.test', 'x', 'admin')`);
     const { createToken } = await import('../src/services/auth.js');
-    const admin = await pool.query<{ id: string }>(`SELECT id FROM users WHERE email = 'admin@stockbarrio.test'`);
+    const admin = await context.pool.query<{ id: string }>(`SELECT id FROM users WHERE email = 'admin@stockbarrio.test'`);
     const token = createToken({ id: admin.rows[0].id, name: 'Admin', email: 'admin@stockbarrio.test', role: 'admin' });
     assert.equal((await call('POST', '/api/products', product, token)).status, 403);
   });

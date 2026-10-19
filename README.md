@@ -6,11 +6,14 @@ El frontend (Angular) está en un repositorio aparte: [stockbarrio-frontend](htt
 
 ## Qué hace
 
-- Registro e inicio de sesión con JWT. El registro público solo crea cuentas de tienda (rol `store`); el rol `admin` solo se crea con el script de seed.
-- CRUD de productos por tienda, con stock, precios, descuentos y fechas de vencimiento. Cada tienda solo puede crear, editar y borrar sus propios productos (si no, responde 403).
-- Consulta de tiendas y sus productos.
-- Recomendaciones de compra: por defecto se calculan en local; opcionalmente se puede usar un proveedor compatible con la API de OpenAI.
-- Validación de entrada con Zod, CORS, Helmet y límite de peticiones.
+- **Cuentas con JWT y tres roles.** Las tiendas (`store`) gestionan su inventario y los clientes (`customer`) reciben alertas. El registro público solo crea esos dos tipos de cuenta; el rol `admin` solo se crea con el script de seed.
+- **Productos por tienda**, con stock, precios en pesos, descuentos y fechas de vencimiento. Cada tienda solo puede crear, editar y borrar sus propios productos (si no, responde 403).
+- **Descuentos sugeridos.** Se calculan con reglas claras (días para vencer, exceso de stock y categoría perecedera) y la tienda los aprueba o rechaza. Nada se aplica sin aprobación.
+- **Asistente de búsqueda** en español ("busco huevos baratos", "leche cerca de mí"). Ordena por precio, descuento, categoría, cercanía o vencimiento, y calcula la distancia con Haversine desde la ubicación del cliente o desde su barrio. La ubicación no se guarda.
+- **Combos con presupuesto**: priorizan lo que vence primero y respetan el presupuesto y el stock.
+- **Alertas y notificaciones dentro de la app.** Cuando una tienda aprueba un descuento, se avisa a los clientes cuyas alertas coinciden. Hay un solo aviso por producto y suscripción, y un límite diario.
+- **IA opcional.** Todo funciona en local sin claves. Con un proveedor compatible con OpenAI se pueden mejorar textos y orden, pero su respuesta se valida siempre con Zod y contra el stock, las cantidades y los límites; si falla, se usan las reglas locales.
+- **Seguridad**: validación con Zod, CORS, Helmet y límite de peticiones.
 
 ## Migraciones
 
@@ -64,6 +67,7 @@ Levanta PostgreSQL (puerto 5432) y la API (puerto 3000). Puedes sobrescribir `JW
 | `OPENAI_MODEL` | Modelo a usar | `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | URL base del proveedor | `https://api.openai.com/v1` |
 | `AI_TIMEOUT_MS` | Tiempo máximo de espera del proveedor | `8000` |
+| `NOTIFICATIONS_DAILY_LIMIT` | Máximo de notificaciones por cliente al día (hora de Bogotá) | `10` |
 
 Variables solo para uso local (no hacen falta en el despliegue):
 
@@ -89,7 +93,7 @@ Nunca subas el `.env` real; solo `.env.example`.
 
 ## Datos de ejemplo
 
-`npm run seed` crea cinco tiendas (Chapinero, Teusaquillo y Suba en Bogotá, Laureles en Medellín y El Prado en Barranquilla) con productos en pesos colombianos, varios a punto de vencer. Las cuentas son `tienda.donaluz@stockbarrio.test`, `mercado.elporvenir@stockbarrio.test`, `autoservicio.lacolina@stockbarrio.test`, `granero.sanjose@stockbarrio.test` y `minimercado.elprado@stockbarrio.test`, con la contraseña de `SEED_STORE_PASSWORD`.
+`npm run seed` crea cinco tiendas (Chapinero, Teusaquillo y Suba en Bogotá, Laureles en Medellín y El Prado en Barranquilla) con productos en pesos colombianos, varios a punto de vencer. Las cuentas son `tienda.donaluz@stockbarrio.test`, `mercado.elporvenir@stockbarrio.test`, `autoservicio.lacolina@stockbarrio.test`, `granero.sanjose@stockbarrio.test` y `minimercado.elprado@stockbarrio.test`, con la contraseña de `SEED_STORE_PASSWORD`. También crea el cliente `cliente.demo@stockbarrio.test` (misma contraseña) con alertas de huevos y de leche en Chapinero.
 
 El seed nunca se ejecuta al arrancar. Es idempotente (omite las tiendas que ya existen) y se niega a correr con `NODE_ENV=production` salvo que se pase `-- --allow-production`. En la imagen de Docker se ejecuta con `node dist/seed.js`.
 
@@ -107,18 +111,63 @@ Sin `TEST_DATABASE_URL` solo corren las pruebas unitarias.
 ## Contrato de la API
 
 - Los campos van en camelCase (`storeId`, `offerPrice`, `expirationDate`, `discountPercent`...).
-- Las fechas de vencimiento son fechas puras `AAAA-MM-DD`, sin hora ni zona horaria. La API también acepta una fecha ISO completa y se queda con el día.
+- Las fechas de vencimiento son fechas puras `AAAA-MM-DD`, sin hora ni zona horaria, y los días se cuentan en hora de Bogotá. La API también acepta una fecha ISO completa y se queda con el día.
+- Los precios son pesos colombianos enteros.
 - Los errores responden `{ message }` en español; los de validación (400) incluyen además `errors: [{ field, message }]`.
-- `GET /api/auth/me` valida el token y devuelve el usuario actual.
-- `GET /api/products/mine` devuelve los productos de la tienda del usuario autenticado.
+
+### Endpoints
+
+| Método y ruta | Quién | Qué hace |
+| --- | --- | --- |
+| `GET /api/health` | Público | Estado de la API |
+| `POST /api/auth/register` | Público | Crea una tienda (con `storeName`, `neighborhood` y `address`) o un cliente (`accountType: "customer"`) |
+| `POST /api/auth/login` | Público | Inicia sesión |
+| `GET /api/auth/me` | Con sesión | Valida el token y devuelve el usuario |
+| `GET /api/products` | Público | Catálogo con filtros `neighborhood`, `category` y `search` |
+| `GET /api/products/mine` | Tienda | Productos y datos de la tienda propia |
+| `GET /api/products/store/:storeId` | Público | Productos de una tienda |
+| `POST /api/products` · `PUT /api/products/:id` · `DELETE /api/products/:id` | Tienda dueña | Crear, editar y borrar productos |
+| `GET /api/stores` · `GET /api/stores/:id` | Público | Tiendas |
+| `GET /api/stores/neighborhoods` | Público | Barrios con tiendas activas |
+| `GET /api/stores/me` · `PUT /api/stores/me` | Tienda | Ver y guardar las coordenadas de la tienda (deben quedar dentro de Colombia) |
+| `GET /api/suggestions` | Tienda | Analiza el inventario y devuelve los descuentos sugeridos pendientes |
+| `POST /api/suggestions/:id/approve` · `/:id/reject` · `/approve-all` | Tienda | Aprobar (aplica el descuento y notifica), rechazar o aprobar todas |
+| `POST /api/assistant/search` | Público (30 por minuto) | `{ message, latitude?, longitude?, neighborhood? }` → respuesta en español y resultados |
+| `POST /api/recommendations` | Público | Combo con `{ budget, neighborhood, productIds? }` |
+| `GET /api/alerts` · `POST /api/alerts` · `DELETE /api/alerts/:id` | Cliente | Alertas por producto o categoría, barrio o radio (con `locationConsent`) y descuento mínimo |
+| `GET /api/notifications` · `GET /unread-count` · `POST /:id/read` · `POST /read-all` | Cliente | Bandeja de notificaciones |
+
+### Reglas de descuento
+
+| Días para vencer | Descuento base |
+| --- | --- |
+| 0 (vence hoy) | 50 % |
+| 1 | 40 % |
+| 2–3 | 30 % |
+| 4–7 | 20 % |
+| 8–14 | 10 % |
+
+Sobre la base se suman puntos y se ajusta así:
+
+- +10 puntos con 30 unidades o más en stock, o +5 con 15 o más.
+- +5 puntos si la categoría es perecedera.
+- Se redondea a múltiplos de 5, con un tope de 70 %.
+- Con más de 14 días, o si el producto ya está vencido, no hay sugerencia.
+
+### Privacidad
+
+- La ubicación que el cliente comparte en el asistente solo se usa durante esa petición.
+- En las alertas por radio se guarda redondeada (unos 100 m) y solo con consentimiento explícito.
+- Las notificaciones solo se muestran dentro de la app: no hay canales externos registrados. Para agregar correo o WhatsApp se implementa `NotificationChannel` en `src/services/notifications.ts`.
 
 ## Estructura
 
-- `src/routes`: rutas de la API (`/api/auth`, `/api/products`, `/api/stores`, `/api/recommendations`). Además está `/api/health`.
+- `src/routes`: rutas de la API.
 - `src/repositories`: acceso a PostgreSQL.
-- `src/services`: autenticación y recomendaciones.
+- `src/services`: reglas de descuento, sugerencias, asistente, combos, notificaciones y cliente opcional de IA.
 - `src/middleware`: verificación del token y de los roles.
 - `src/errors.ts`: errores de la API y manejador de errores.
+- `src/dates.ts`, `src/geo.ts`, `src/format.ts`: fechas en hora de Bogotá, distancias y formato de pesos.
 - `src/seed.ts`: datos de ejemplo.
 - `src/migrations`: esquema de la base de datos.
-- `test`: pruebas.
+- `test`: pruebas unitarias y de integración.

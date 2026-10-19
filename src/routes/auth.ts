@@ -6,11 +6,17 @@ import { database } from '../database.js';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
-// Public registration only creates store accounts; admins are created by the seed script.
-const registerSchema = z.object({
+// Public registration creates store or customer accounts, never admins (those come from the seed script).
+const accountSchema = {
   name: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(160),
   password: z.string().min(8).max(128),
+};
+const customerRegisterSchema = z.object({ accountType: z.literal('customer'), ...accountSchema });
+// accountType is optional for stores so older clients keep working.
+const registerSchema = z.object({
+  accountType: z.literal('store').optional(),
+  ...accountSchema,
   storeName: z.string().trim().min(2).max(120),
   neighborhood: z.string().trim().min(2).max(80),
   address: z.string().trim().min(5).max(200),
@@ -28,6 +34,13 @@ const toAuthUser = (user: { id: string; name: string; email: string; role: AuthU
 
 router.post('/register', async (request, response, next) => {
   try {
+    if (request.body?.accountType === 'customer') {
+      const input = customerRegisterSchema.parse(request.body);
+      if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
+      const created = await userRepository.create({ name: input.name, email: input.email, passwordHash: await hashPassword(input.password), role: 'customer' });
+      const user = toAuthUser(created);
+      return response.status(201).json({ message: 'La cuenta se ha creado correctamente.', token: createToken(user), user });
+    }
     const input = registerSchema.parse(request.body);
     if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
     const stores = await database.query('SELECT id FROM stores WHERE lower(name) = lower($1) AND lower(neighborhood) = lower($2)', [input.storeName, input.neighborhood]);
