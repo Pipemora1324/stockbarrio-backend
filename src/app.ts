@@ -9,6 +9,7 @@ import authRouter from './routes/auth.js';
 import productsRouter from './routes/products.js';
 import recommendationsRouter from './routes/recommendations.js';
 import storesRouter from './routes/stores.js';
+import suggestionsRouter from './routes/suggestions.js';
 
 export const app = express();
 app.disable('x-powered-by');
@@ -22,5 +23,6 @@ app.use('/api/auth', authRouter);
 app.use('/api/stores', storesRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/recommendations', recommendationsRouter);
+app.use('/api/suggestions', suggestionsRouter);
 app.use((_request, response) => response.status(404).json({ message: 'La ruta no existe.' }));
 app.use(errorHandler);
