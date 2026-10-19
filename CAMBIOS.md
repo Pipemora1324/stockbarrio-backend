@@ -49,3 +49,45 @@ npm run dev
 ```
 
 Inicia sesión con `mercado.elporvenir@stockbarrio.test` / `tienda12345` y llama `GET /api/suggestions` con el token.
+
+## Fase 3: búsqueda conversacional y cercanía
+
+### Qué cambió
+
+- **Asistente de búsqueda** (`POST /api/assistant/search`, público, limitado a 30 peticiones por minuto). Recibe `{ message, latitude?, longitude?, neighborhood? }` y responde `{ reply, intent, origin, results }`.
+  - **Intención con reglas locales** (`src/services/search-intent.ts`). Reconoce el producto (quita tildes, palabras de relleno y plurales: "huevos" → "huevo") y una preferencia:
+
+    | Preferencia | Ejemplos de lo que reconoce |
+    | --- | --- |
+    | `cheapest` | "barato", "económico", "menor precio" |
+    | `best_deal` | "oferta", "descuento", "rebaja" |
+    | `best_grade` | "mejor categoría", "mejor calidad", "premium" (ordena AAA > AA > A) |
+    | `nearest` | "cerca de mí", "más cerca" |
+    | `expiring` | "por vencer", "vence pronto" |
+
+    También detecta un barrio escrito en el mensaje ("huevos en Chapinero") y lo usa como filtro.
+  - **IA opcional.** Con proveedor activo, puede afinar los términos y la preferencia. Su respuesta se valida con Zod: solo letras, números y espacios, máximo 5 términos y preferencia de la lista. Si no cumple, se usan las reglas locales.
+  - **Distancia con Haversine** (`src/geo.ts`) desde la ubicación que envía el cliente o, si eligió un barrio, desde el promedio de las tiendas de ese barrio que tienen coordenadas.
+  - **Resultados.** Hasta 8, sin productos vencidos ni sin stock, ordenados por el criterio pedido. Cada uno trae tienda, barrio, dirección, distancia aproximada, precio con descuento, porcentaje y días para vencer. La respuesta se redacta en español; si el cliente pidió "cerca" sin compartir ubicación, le sugiere compartirla o elegir su barrio.
+  - **Privacidad.** La ubicación del cliente solo se usa durante la petición: no se guarda en la base y morgan no registra el cuerpo.
+- **Ubicación de la tienda.**
+  - `GET /api/stores/me` devuelve la tienda del usuario.
+  - `PUT /api/stores/me` guarda `{ latitude, longitude }`, o ambas en `null` para quitarla. Se rechazan coordenadas fuera de Colombia, con un aviso por si quedaron invertidas.
+- **`GET /api/stores/neighborhoods`** lista los barrios con tiendas activas.
+- **`GET /api/stores/:id`** valida que el id sea un UUID.
+
+### Migraciones
+
+Ninguna. Se usan las columnas `latitude` y `longitude` que ya existían en `stores`.
+
+### Variables nuevas
+
+Ninguna.
+
+### Cómo probarlo
+
+```bash
+npm run seed && npm run dev
+curl -X POST localhost:3000/api/assistant/search -H 'content-type: application/json' -d '{"message":"busco huevos baratos"}'
+curl -X POST localhost:3000/api/assistant/search -H 'content-type: application/json' -d '{"message":"leche cerca de mí","latitude":4.6405,"longitude":-74.064}'
+```
