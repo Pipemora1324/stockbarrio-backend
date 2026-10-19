@@ -1,9 +1,13 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
+import { storeRepository, type StoreRecord } from '../repositories/store.js';
+
+export type UserRole = 'admin' | 'store';
 
 export interface AuthenticatedRequest extends Request {
-  user?: { id: string; role: 'admin' | 'store'; name: string; storeId?: string };
+  user?: { id: string; role: UserRole; name: string; email?: string; storeId?: string };
+  store?: StoreRecord;
 }
 
 export const authenticate = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
@@ -26,4 +30,22 @@ export const requireAdmin = (request: AuthenticatedRequest, response: Response, 
     return;
   }
   next();
+};
+
+export const requireStore = async (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+  if (request.user?.role !== 'store') {
+    response.status(403).json({ message: 'Solo las tiendas pueden gestionar productos.' });
+    return;
+  }
+  try {
+    const store = await storeRepository.getByUserId(request.user.id);
+    if (!store) {
+      response.status(403).json({ message: 'Tu cuenta no tiene una tienda asociada.' });
+      return;
+    }
+    request.store = store;
+    next();
+  } catch (error) {
+    next(error);
+  }
 };
