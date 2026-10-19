@@ -31,6 +31,14 @@ export const config = {
   aiCacheTtlMs: positiveNumber(process.env.AI_CACHE_TTL_MS, 60_000),
   chatRatePerMinute: positiveNumber(process.env.CHAT_RATE_PER_MINUTE, 10),
   chatRatePerDay: positiveNumber(process.env.CHAT_RATE_PER_DAY, 100),
+  // Public address of the frontend, used to build the links sent by email.
+  appUrl: (process.env.APP_URL ?? 'http://localhost:4200').replace(/\/+$/, ''),
+  smtpHost: process.env.SMTP_HOST ?? '',
+  smtpPort: positiveNumber(process.env.SMTP_PORT, 587),
+  smtpUser: process.env.SMTP_USER ?? '',
+  smtpPass: process.env.SMTP_PASS ?? '',
+  mailFrom: process.env.MAIL_FROM ?? 'StockBarrio <no-responder@stockbarrio.local>',
+  accountTokenTtlMinutes: 30,
   // Maximum in-app notifications a customer can receive per day (Bogota time), to avoid spam.
   notificationsDailyLimit: Math.max(1, Number(process.env.NOTIFICATIONS_DAILY_LIMIT ?? 10)),
 };
