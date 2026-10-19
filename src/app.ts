@@ -12,7 +12,6 @@ import authRouter from './routes/auth.js';
 import notificationsRouter from './routes/notifications.js';
 import offersRouter from './routes/offers.js';
 import productsRouter from './routes/products.js';
-import recommendationsRouter from './routes/recommendations.js';
 import storesRouter from './routes/stores.js';
 import suggestionsRouter from './routes/suggestions.js';
 
@@ -30,7 +29,6 @@ app.use('/api/auth', authRouter);
 app.use('/api/account', accountRouter);
 app.use('/api/stores', storesRouter);
 app.use('/api/products', productsRouter);
-app.use('/api/recommendations', recommendationsRouter);
 app.use('/api/suggestions', suggestionsRouter);
 app.use('/api/assistant', assistantRouter);
 app.use('/api/alerts', alertsRouter);

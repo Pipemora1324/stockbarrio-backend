@@ -37,19 +37,16 @@ describe('stores, public products and errors API', { skip: integrationSkip }, ()
     assert.equal(missing.body.message, 'La tienda no existe.');
   });
 
-  it('saves the store location only with both coordinates inside Colombia, and can clear it', async () => {
-    const onlyLatitude = await call('PUT', '/api/stores/me', { latitude: 4.65, longitude: null }, norte.token);
-    assert.equal(onlyLatitude.status, 400);
-    assert.match(onlyLatitude.body.message, /latitud y longitud juntas/);
-    assert.equal((await call('PUT', '/api/stores/me', { latitude: 40.41, longitude: -3.7 }, norte.token)).status, 400, 'Madrid');
-
-    const saved = await call('PUT', '/api/stores/me', { latitude: 4.6486, longitude: -74.0628, address: 'Carrera 7 # 60-20', phone: '3001234567' }, norte.token);
-    assert.equal(saved.status, 200);
-    assert.deepEqual([saved.body.data.latitude, saved.body.data.longitude, saved.body.data.address], [4.6486, -74.0628, 'Carrera 7 # 60-20']);
-
-    const cleared = await call('PUT', '/api/stores/me', { latitude: null, longitude: null }, norte.token);
-    assert.deepEqual([cleared.body.data.latitude, cleared.body.data.longitude], [null, null]);
-    assert.equal(cleared.body.data.address, 'Carrera 7 # 60-20', 'fields that are not sent keep their value');
+  it('shows the store as text only: no coordinates and no location route', async () => {
+    await context.pool.query('UPDATE stores SET latitude = 4.6486, longitude = -74.0628 WHERE id = $1', [norte.user.storeId]);
+    const responses = [await call('GET', '/api/stores'), await call('GET', `/api/stores/${norte.user.storeId}`), await call('GET', '/api/stores/me', undefined, norte.token), await call('GET', '/api/products/mine', undefined, norte.token)];
+    for (const response of responses) {
+      assert.equal(response.status, 200);
+      assert.doesNotMatch(JSON.stringify(response.body), /latitude|longitude|4\.6486/);
+    }
+    assert.deepEqual(Object.keys(responses[2].body.data).sort(), ['active', 'address', 'createdAt', 'id', 'name', 'neighborhood', 'phone']);
+    const update = await call('PUT', '/api/stores/me', { latitude: 4.65, longitude: -74.06 }, norte.token);
+    assert.equal(update.status, 404);
   });
 
   it('lists the active products of one store, without the deleted ones', async () => {

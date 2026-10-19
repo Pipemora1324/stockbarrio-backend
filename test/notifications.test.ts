@@ -5,7 +5,7 @@ import { config } from '../src/config.js';
 import { addDays, todayInBogota } from '../src/dates.js';
 import { buildNotificationText, matchesPlace, matchesProduct, type DiscountedProduct } from '../src/services/notifications.js';
 
-const store = { name: 'Tienda Doña Luz', neighborhood: 'Chapinero', latitude: 4.641, longitude: -74.0636 };
+const store = { name: 'Tienda Doña Luz', neighborhood: 'Chapinero' };
 const product: DiscountedProduct = { id: 'p', name: 'Huevos AA x 30', category: 'Huevos', offerPrice: 12950, discountPercent: 30, expirationDate: '2026-10-21', store };
 
 describe('alert matching', () => {
@@ -17,19 +17,17 @@ describe('alert matching', () => {
     assert.equal(matchesProduct({ query: 'huevos', category: 'Lácteos' }, product), false);
   });
 
-  it('matches by neighborhood or by radius around the saved position', () => {
-    assert.equal(matchesPlace({ neighborhood: 'chapinero', latitude: null, longitude: null, radiusKm: null }, store), null);
-    assert.equal(matchesPlace({ neighborhood: 'Suba', latitude: null, longitude: null, radiusKm: null }, store), false);
-    const near = matchesPlace({ neighborhood: null, latitude: 4.64, longitude: -74.064, radiusKm: 1 }, store);
-    assert.ok(typeof near === 'number' && near < 0.2);
-    assert.equal(matchesPlace({ neighborhood: null, latitude: 4.7286, longitude: -74.0657, radiusKm: 2 }, store), false);
-    assert.equal(matchesPlace({ neighborhood: null, latitude: 4.64, longitude: -74.064, radiusKm: 5 }, { ...store, latitude: null, longitude: null }), false);
+  it('matches by neighborhood only, ignoring letter case and accents', () => {
+    assert.equal(matchesPlace({ neighborhood: 'chapinero' }, store), true);
+    assert.equal(matchesPlace({ neighborhood: 'Suba' }, store), false);
+    assert.equal(matchesPlace({ neighborhood: null }, store), true, 'without neighborhood it matches every store');
+    assert.equal(matchesPlace({ neighborhood: 'Usaquén' }, { ...store, neighborhood: 'usaquen' }), true);
   });
 
-  it('writes a short Spanish message with store, product, price and distance', () => {
-    const text = buildNotificationText(product, 1.24, '2026-10-18');
+  it('writes a short Spanish message with store, product and price, without distances', () => {
+    const text = buildNotificationText(product, '2026-10-18');
     assert.equal(text.title, '30 % de descuento en Huevos AA x 30');
-    assert.equal(text.message, 'Tienda Doña Luz (Chapinero) tiene Huevos AA x 30 a $ 12.950, a 1,2 km de ti. Vence en 3 días.');
+    assert.equal(text.message, 'Tienda Doña Luz (Chapinero) tiene Huevos AA x 30 a $ 12.950. Vence en 3 días.');
   });
 });
 
@@ -70,40 +68,39 @@ describe('alerts and notifications API', { skip: integrationSkip }, () => {
     assert.equal((await context.pool.query(`SELECT 1 FROM users WHERE role = 'admin'`)).rowCount, 0);
   });
 
-  it('asks for consent before saving a position and rounds it', async () => {
+  it('never saves a position for an alert, even if an older client sends one', async () => {
     const { token } = await registerCustomer('consent');
-    const withoutConsent = await call('POST', '/api/alerts', { query: 'leche', latitude: 4.641234, longitude: -74.063612, radiusKm: 2 }, token);
-    assert.equal(withoutConsent.status, 400);
-    assert.match(withoutConsent.body.message, /aceptar que guardemos tu ubicación aproximada/);
-    const saved = await call('POST', '/api/alerts', { query: 'leche', latitude: 4.641234, longitude: -74.063612, radiusKm: 2, locationConsent: true }, token);
+    const saved = await call('POST', '/api/alerts', { query: 'leche', neighborhood: 'Chapinero', latitude: 4.641234, longitude: -74.063612, radiusKm: 2, locationConsent: true }, token);
     assert.equal(saved.status, 201);
-    assert.deepEqual([saved.body.data.latitude, saved.body.data.longitude], [4.641, -74.064]);
+    assert.doesNotMatch(JSON.stringify(saved.body), /latitude|longitude|radius/);
+    const stored = await context.pool.query('SELECT latitude, longitude, radius_km FROM alert_subscriptions WHERE id = $1', [saved.body.data.id]);
+    assert.deepEqual(stored.rows[0], { latitude: null, longitude: null, radius_km: null });
     assert.equal((await call('POST', '/api/alerts', { minDiscount: 10 }, token)).status, 400);
   });
 
   it('notifies matching customers once when a store approves a discount', async () => {
     const shop = await registerStore('noti-tienda', { neighborhood: 'Chapinero' });
-    await call('PUT', '/api/stores/me', { latitude: 4.641, longitude: -74.0636 }, shop.token);
     const byProduct = await registerCustomer('huevos');
-    const byRadius = await registerCustomer('radio');
+    const oldRadius = await registerCustomer('radio');
     const otherPlace = await registerCustomer('suba');
     const tooDemanding = await registerCustomer('exigente');
     await call('POST', '/api/alerts', { query: 'huevos', neighborhood: 'Chapinero' }, byProduct.token);
     await call('POST', '/api/alerts', { category: 'Huevos' }, byProduct.token);
-    await call('POST', '/api/alerts', { query: 'huevos', latitude: 4.64, longitude: -74.064, radiusKm: 1, locationConsent: true }, byRadius.token);
+    // An alert saved by radius before this change has no place filter left, so it is not used.
+    const old = await call('POST', '/api/alerts', { query: 'huevos' }, oldRadius.token);
+    await context.pool.query('UPDATE alert_subscriptions SET latitude = 4.64, longitude = -74.064, radius_km = 1 WHERE id = $1', [old.body.data.id]);
     await call('POST', '/api/alerts', { query: 'huevos', neighborhood: 'Suba' }, otherPlace.token);
     await call('POST', '/api/alerts', { query: 'huevos', minDiscount: 80 }, tooDemanding.token);
 
     const approved = await approveDiscountFor(shop.token, 'Huevos AA x 30');
     assert.equal(approved.status, 200);
-    assert.equal(approved.body.notified, 2);
+    assert.equal(approved.body.notified, 1);
 
     const inbox = await call('GET', '/api/notifications', undefined, byProduct.token);
     assert.equal(inbox.body.data.length, 1, 'two matching alerts of the same person produce a single notice');
     assert.equal(inbox.body.unread, 1);
     assert.match(inbox.body.data[0].message, /^Tienda noti-tienda \(Chapinero\) tiene Huevos AA x 30 a \$ \d{1,3}\.\d{3}\. Vence en 3 días\.$/);
-    const radius = await call('GET', '/api/notifications', undefined, byRadius.token);
-    assert.match(radius.body.data[0].message, /a \d+ m de ti/);
+    assert.equal((await call('GET', '/api/notifications', undefined, oldRadius.token)).body.data.length, 0);
     assert.equal((await call('GET', '/api/notifications', undefined, otherPlace.token)).body.data.length, 0);
     assert.equal((await call('GET', '/api/notifications', undefined, tooDemanding.token)).body.data.length, 0);
   });

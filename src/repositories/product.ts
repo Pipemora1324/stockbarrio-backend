@@ -47,8 +47,6 @@ export interface SearchRow extends ProductRecord {
   storeName: string;
   neighborhood: string;
   address: string;
-  latitude: number | null;
-  longitude: number | null;
 }
 
 // Lowercase and accent-free text of a product, so "lacteos" matches "Lácteos".
@@ -69,7 +67,7 @@ export const productRepository = {
     if (options.maxPrice) conditions.push(`p.offer_price <= ${addParam(options.maxPrice)}`);
     if (options.onlyDiscounted) conditions.push('p.discount_percent > 0');
     const result = await database.query<SearchRow>(
-      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address, s.latitude, s.longitude
+      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address
        FROM products p JOIN stores s ON s.id = p.store_id WHERE ${conditions.join(' AND ')}
        ORDER BY p.expiration_date ASC LIMIT ${addParam(options.limit)}`,
       params,
@@ -96,7 +94,7 @@ export const productRepository = {
     if (filters.category) conditions.push(`lower(p.category) = lower(${addParam(filters.category)})`);
     if (filters.search) conditions.push(`${searchableText} LIKE ${addParam(`%${filters.search}%`)}`);
     const result = await database.query<SearchRow>(
-      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address, s.latitude, s.longitude
+      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address
        FROM products p JOIN stores s ON s.id = p.store_id WHERE ${conditions.join(' AND ')}
        ORDER BY p.discount_percent DESC, p.expiration_date ASC LIMIT ${addParam(filters.limit)}`,
       params,

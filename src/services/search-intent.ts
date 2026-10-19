@@ -1,11 +1,12 @@
 import { normalizeText } from './discount-rules.js';
 
-export const searchPreferences = ['relevance', 'cheapest', 'best_deal', 'best_grade', 'nearest', 'expiring'] as const;
+export const searchPreferences = ['relevance', 'cheapest', 'best_deal', 'best_grade', 'expiring'] as const;
 export type SearchPreference = (typeof searchPreferences)[number];
 
 export interface SearchIntent {
   terms: string[];
   preference: SearchPreference;
+  // "Cerca de mí": there are no distances, so it only means "in my neighborhood".
   wantsNearby: boolean;
   neighborhood?: string;
 }
@@ -16,8 +17,8 @@ const preferencePhrases: Array<{ preference: Exclude<SearchPreference, 'relevanc
   { preference: 'best_grade', phrases: ['mejor categoria', 'mejor calidad', 'la mejor', 'el mejor', 'los mejores', 'las mejores', 'premium', 'triple a'] },
   { preference: 'best_deal', phrases: ['mejor oferta', 'mejores ofertas', 'mas descuento', 'mayor descuento', 'en oferta', 'ofertas', 'oferta', 'descuento', 'descuentos', 'rebaja', 'promocion'] },
   { preference: 'cheapest', phrases: ['mas barato', 'mas baratos', 'mas barata', 'mas baratas', 'baratos', 'baratas', 'barato', 'barata', 'economico', 'economicos', 'economica', 'menor precio', 'mejor precio'] },
-  { preference: 'nearest', phrases: ['cerca de mi', 'cerca a mi', 'mas cerca', 'mas cercano', 'mas cercana', 'cercano', 'cercana', 'cerquita', 'cerca'] },
 ];
+const nearbyPhrases = ['cerca de mi', 'cerca a mi', 'mas cerca', 'mas cercano', 'mas cercana', 'cercano', 'cercana', 'cerquita', 'cerca'];
 
 const stopWords = new Set([
   'busco', 'buscar', 'buscando', 'quiero', 'queria', 'necesito', 'me', 'gustaria', 'hay', 'tienen', 'tiene', 'venden', 'vende', 'donde', 'consigo', 'conseguir',
@@ -44,12 +45,15 @@ export const parseIntent = (message: string, knownNeighborhoods: string[] = []):
   for (const group of preferencePhrases) {
     for (const phrase of group.phrases) {
       if (!text.includes(` ${phrase} `)) continue;
-      if (group.preference === 'nearest') wantsNearby = true;
-      if (preference === 'relevance' || (preference === 'nearest' && group.preference !== 'nearest')) preference = group.preference;
+      if (preference === 'relevance') preference = group.preference;
       text = text.replaceAll(` ${phrase} `, ' ');
     }
   }
-  if (wantsNearby && preference === 'relevance') preference = 'nearest';
+  for (const phrase of nearbyPhrases) {
+    if (!text.includes(` ${phrase} `)) continue;
+    wantsNearby = true;
+    text = text.replaceAll(` ${phrase} `, ' ');
+  }
 
   let neighborhood: string | undefined;
   for (const candidate of [...knownNeighborhoods].sort((first, second) => second.length - first.length)) {

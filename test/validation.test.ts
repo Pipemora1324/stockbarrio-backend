@@ -8,8 +8,6 @@ import {
   discountSchema,
   emailSchema,
   futureDateSchema,
-  latitudeSchema,
-  longitudeSchema,
   passwordDiffersFromEmail,
   passwordSchema,
   personNameSchema,
@@ -86,13 +84,6 @@ describe('validation rules', () => {
     assert.match(messageOf(futureDateSchema, addDays(today, -1)), /no puede estar en el pasado/);
     assert.ok(!accepts(futureDateSchema, '2026-02-30'));
     assert.ok(!accepts(futureDateSchema, addDays(today, 365 * 6)));
-  });
-
-  it('coordinates stay in their valid ranges', () => {
-    assert.ok(accepts(latitudeSchema, 4.64));
-    assert.ok(!accepts(latitudeSchema, 91));
-    assert.ok(accepts(longitudeSchema, -74.06));
-    assert.ok(!accepts(longitudeSchema, -181));
   });
 });
 

@@ -8,7 +8,11 @@ describe('parseIntent', () => {
   });
 
   it('understands "leche cerca de mí" with accents and punctuation', () => {
-    assert.deepEqual(parseIntent('¿Leche cerca de mí?'), { terms: ['leche'], preference: 'nearest', wantsNearby: true });
+    assert.deepEqual(parseIntent('¿Leche cerca de mí?'), { terms: ['leche'], preference: 'relevance', wantsNearby: true });
+  });
+
+  it('reads "cerca de mí" with a neighborhood as a search in that neighborhood', () => {
+    assert.deepEqual(parseIntent('huevos cerquita, en chapinero', ['Chapinero', 'Suba']), { terms: ['huevo'], preference: 'relevance', wantsNearby: true, neighborhood: 'Chapinero' });
   });
 
   it('keeps the nearby wish when another preference wins', () => {
