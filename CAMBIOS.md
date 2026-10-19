@@ -130,3 +130,33 @@ curl -X POST localhost:3000/api/assistant/search -H 'content-type: application/j
 ### Cómo probarlo
 
 `npm run seed`, entra como `tienda.donaluz@stockbarrio.test` y aprueba la sugerencia de "Leche entera 1 L". Luego entra como `cliente.demo@stockbarrio.test` y llama `GET /api/notifications`.
+
+## Fase 5: revisión final
+
+### Qué cambió
+
+- README actualizado con roles, tabla de endpoints, reglas de descuento, privacidad, variables y cómo probar.
+- Revisión de código:
+  - todo el código está en inglés y los mensajes de la API en español;
+  - no hay `console.log` sobrantes (solo quedan logs del servidor con `console.info` o `console.error`);
+  - no hay claves ni `.env` en el repositorio.
+
+### Migraciones y variables
+
+Ninguna nueva en esta fase.
+
+## Resumen para pasar `desarrollo` a `main`
+
+| Migración | Qué hace |
+| --- | --- |
+| `003_discount_suggestions.sql` | Tabla `discount_suggestions` |
+| `004_customer_role.sql` | Amplía el `CHECK` de `users.role` con `customer` |
+| `005_alerts.sql` | Tablas `alert_subscriptions` y `notifications` |
+
+Las tres son aditivas, corren solas al arrancar en Render, cada una en su transacción, y el migrador les activa RLS a las tablas nuevas. No modifican datos existentes.
+
+**Variables nuevas en Render:** solo `NOTIFICATIONS_DAILY_LIMIT`, y es opcional (por defecto 10). Para la IA siguen sirviendo las de antes, con `AI_PROVIDER=local` como valor por defecto.
+
+**Compatibilidad:** la API de `desarrollo` sigue funcionando con el frontend que hoy está en `main`. El registro sin `accountType` crea tiendas, y los campos de producto, tienda y combo solo ganan propiedades nuevas.
+
+**Pruebas:** `npm run lint`, `npm run build` y `npm test` en verde, con 75 pruebas unitarias y de integración contra Postgres local.
