@@ -1,72 +1,147 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { z } from 'zod';
 import { config } from '../src/config.js';
-import { activeProviders, extractJson, requestJson } from '../src/services/llm.js';
+import { extractJson, hasBudget, modelChain, pauseAfterRateLimit, reasoningOptions, requestChatJson, requestJson, resetModelUsage, stripReasoning } from '../src/services/llm.js';
 
 const schema = z.object({ answer: z.string() });
-const reply = (content: string, ok = true) => mock.method(globalThis, 'fetch', async () => ({ ok, json: async () => ({ choices: [{ message: { content } }] }) }) as Response);
-const withMainProvider = () => Object.assign(config, { aiProvider: 'openai', openAiApiKey: 'clave-de-prueba', openAiBaseUrl: 'https://principal.test/v1' });
-const withFallback = () => Object.assign(config, { aiFallbackApiKey: 'clave-respaldo', aiFallbackModel: 'modelo-respaldo', aiFallbackBaseUrl: 'https://respaldo.test/openai/' });
+const ok = (content: string, totalTokens?: number) => new Response(JSON.stringify({ choices: [{ message: { content } }], ...(totalTokens ? { usage: { total_tokens: totalTokens } } : {}) }));
 
-describe('requestJson', () => {
+const groqAndGemini = () =>
+  Object.assign(config, {
+    aiProvider: 'openai',
+    openAiApiKey: 'gsk_clave_secreta_de_prueba',
+    openAiBaseUrl: 'https://groq.simulado/openai/v1',
+    openAiModel: 'openai/gpt-oss-120b',
+    aiModels: ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'],
+    aiFallbackApiKey: 'AIza_clave_secreta_de_prueba',
+    aiFallbackBaseUrl: 'https://gemini.simulado/v1beta/openai/',
+    aiFallbackModels: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  });
+
+// Records which model each request asked for and lets each test decide the answer per model.
+const simulate = (answer: (model: string, body: Record<string, any>) => Response) => {
+  const calls: Array<{ url: string; model: string; body: Record<string, any> }> = [];
+  mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    calls.push({ url, model: body.model, body });
+    return answer(body.model, body);
+  });
+  return calls;
+};
+
+describe('model chain', () => {
   const original = { ...config };
+  beforeEach(() => resetModelUsage());
   afterEach(() => {
     Object.assign(config, original);
     mock.restoreAll();
+    resetModelUsage();
   });
 
   it('never calls a provider with the local provider or without a key', async () => {
-    const fetchMock = reply('{"answer":"hola"}');
+    const calls = simulate(() => ok('{"answer":"hola"}'));
     assert.equal(await requestJson('x', {}, schema), null);
     Object.assign(config, { aiProvider: 'openai', openAiApiKey: '' });
     assert.equal(await requestJson('x', {}, schema), null);
-    assert.equal(fetchMock.mock.callCount(), 0);
+    assert.equal(calls.length, 0);
   });
 
-  it('returns the validated answer, also when it comes inside code fences', async () => {
-    withMainProvider();
-    reply('```json\n{"answer":"hola"}\n```');
+  it('builds the chain from AI_MODELS and AI_FALLBACK_MODELS, or from the single model', () => {
+    groqAndGemini();
+    assert.deepEqual(modelChain().map((target) => `${target.provider}:${target.model}`), [
+      'principal:openai/gpt-oss-120b',
+      'principal:qwen/qwen3.8-27b',
+      'principal:openai/gpt-oss-20b',
+      'respaldo:gemini-2.5-flash',
+      'respaldo:gemini-2.5-flash-lite',
+    ]);
+    Object.assign(config, { aiModels: [], aiFallbackModels: [], aiFallbackModel: '' });
+    assert.deepEqual(modelChain().map((target) => target.model), ['openai/gpt-oss-120b']);
+  });
+
+  it('moves to the next model on 429 and keeps the exhausted one paused for Retry-After', async () => {
+    groqAndGemini();
+    const calls = simulate((model) => (model === 'openai/gpt-oss-120b' ? new Response('{"error":"rate limit"}', { status: 429, headers: { 'retry-after': '120' } }) : ok('{"answer":"qwen"}')));
+    assert.deepEqual(await requestJson('x', {}, schema), { answer: 'qwen' });
+    assert.deepEqual(await requestJson('x', {}, schema), { answer: 'qwen' });
+    assert.deepEqual(calls.map((call) => call.model), ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'qwen/qwen3.8-27b'], 'the paused model is skipped');
+  });
+
+  it('pauses a model until the next day when its daily quota is used up', () => {
+    const now = Date.parse('2026-10-19T15:00:00Z');
+    const daily = pauseAfterRateLimit(new Headers({ 'x-ratelimit-remaining-requests': '0' }), '', now);
+    assert.equal(now + daily, Date.parse('2026-10-20T00:00:00Z'));
+    const byText = pauseAfterRateLimit(new Headers(), 'Rate limit reached for model on tokens per day (TPD)', now);
+    assert.equal(now + byText, Date.parse('2026-10-20T00:00:00Z'));
+    assert.equal(pauseAfterRateLimit(new Headers({ 'retry-after': '7' }), '', now), 7000);
+    assert.equal(pauseAfterRateLimit(new Headers(), '', now), 60_000);
+  });
+
+  it('goes through the Gemini fallback models and then gives up so local rules answer', async () => {
+    groqAndGemini();
+    const calls = simulate((model) => (model.startsWith('gemini-2.5-flash-lite') ? ok('{"answer":"lite"}') : new Response('caído', { status: model.startsWith('gemini') ? 429 : 503 })));
+    assert.deepEqual(await requestJson('x', {}, schema), { answer: 'lite' });
+    assert.deepEqual(calls.map((call) => call.model), ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']);
+    assert.equal(calls[3].url, 'https://gemini.simulado/v1beta/openai/chat/completions');
+    mock.restoreAll();
+    const none = simulate(() => new Response('caído', { status: 500 }));
+    assert.equal(await requestJson('x', {}, schema), null);
+    assert.deepEqual(none.map((call) => call.model), ['gemini-2.5-flash-lite'], 'only the model that was still available is tried');
+  });
+
+  it('respects the per-model token budget with its safety margin', async () => {
+    groqAndGemini();
+    Object.assign(config, { aiTokensPerDay: 1000, aiModels: ['openai/gpt-oss-120b'], aiFallbackModels: [] });
+    const calls = simulate(() => ok('{"answer":"hola"}', 900));
     assert.deepEqual(await requestJson('x', {}, schema), { answer: 'hola' });
+    // 900 real tokens used: another ~310 token request no longer fits in the 1.000 daily budget.
+    assert.equal(await requestJson('x', {}, schema), null);
+    assert.equal(calls.length, 1);
+    assert.equal(hasBudget(modelChain()[0], 50), true);
   });
 
-  it('returns null for invalid JSON, a wrong shape or an HTTP error', async () => {
-    withMainProvider();
-    reply('no es json');
+  it('keeps under the per-minute request and token limits', async () => {
+    groqAndGemini();
+    Object.assign(config, { aiRequestsPerMinute: 2, aiModels: ['openai/gpt-oss-120b'], aiFallbackModels: [] });
+    const calls = simulate(() => ok('{"answer":"hola"}'));
+    await requestJson('x', {}, schema);
+    await requestJson('x', {}, schema);
     assert.equal(await requestJson('x', {}, schema), null);
-    mock.restoreAll();
-    reply('{"answer":42}');
-    assert.equal(await requestJson('x', {}, schema), null);
-    mock.restoreAll();
-    reply('{"answer":"hola"}', false);
-    assert.equal(await requestJson('x', {}, schema), null);
+    assert.equal(calls.length, 2);
+    assert.equal(config.aiTokensPerMinute < 8000, true);
+    assert.equal(config.aiTokensPerDay, 150_000);
   });
 
-  it('uses the fallback provider when the main one answers 429 or 5xx', async () => {
-    withMainProvider();
-    withFallback();
-    const calls: string[] = [];
-    mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
-      calls.push(url);
-      if (url.startsWith('https://principal.test')) return new Response('{"error":"quota"}', { status: 429 });
-      assert.equal(JSON.parse(String(init.body)).model, 'modelo-respaldo');
-      return new Response(JSON.stringify({ choices: [{ message: { content: '{"answer":"del respaldo"}' } }] }));
-    });
-    assert.deepEqual(await requestJson('x', {}, schema), { answer: 'del respaldo' });
-    assert.deepEqual(calls, ['https://principal.test/v1/chat/completions', 'https://respaldo.test/openai/chat/completions']);
+  it('sends short requests with low reasoning and never returns the hidden reasoning', async () => {
+    groqAndGemini();
+    const calls = simulate((model) => ok(model.startsWith('openai/gpt-oss-120b') ? '<think>el cliente quiere... razonamiento interno</think>{"answer":"visible"}' : '{"answer":"x"}'));
+    assert.deepEqual(await requestJson('x', {}, schema), { answer: 'visible' });
+    assert.equal(calls[0].body.max_tokens, 300);
+    assert.equal(calls[0].body.reasoning_effort, 'low');
+    assert.equal(calls[0].body.include_reasoning, false);
+    assert.deepEqual(reasoningOptions('qwen/qwen3.8-27b'), { reasoning_effort: 'none', reasoning_format: 'hidden' });
+    assert.deepEqual(reasoningOptions('gemini-2.5-flash-lite'), { reasoning_effort: 'low' });
+    assert.equal(stripReasoning('<thinking>secreto</thinking>respuesta'), 'respuesta');
   });
 
-  it('returns null when every provider fails, so callers use local rules', async () => {
-    withMainProvider();
-    withFallback();
-    mock.method(globalThis, 'fetch', async () => new Response('caído', { status: 503 }));
-    assert.equal(await requestJson('x', {}, schema), null);
+  it('does not send prompts over the size limit', async () => {
+    groqAndGemini();
+    const calls = simulate(() => ok('{"answer":"hola"}'));
+    const long = 'x'.repeat(4 * 800);
+    assert.equal(await requestChatJson([{ role: 'user', content: long }], schema), null);
+    assert.equal(calls.length, 0);
   });
 
-  it('lists the active providers in order', () => {
-    withMainProvider();
-    withFallback();
-    assert.deepEqual(activeProviders().map((provider) => provider.name), ['principal', 'respaldo']);
+  it('never writes the keys in the logs', async () => {
+    groqAndGemini();
+    const lines: string[] = [];
+    mock.method(console, 'warn', (...args: unknown[]) => lines.push(args.join(' ')));
+    mock.method(console, 'error', (...args: unknown[]) => lines.push(args.join(' ')));
+    simulate(() => new Response('{"error":"quota"}', { status: 429 }));
+    await requestJson('x', {}, schema);
+    assert.ok(lines.length > 0);
+    assert.equal(lines.some((line) => line.includes('clave_secreta')), false);
   });
 
   it('extracts the JSON object from a longer text', () => {

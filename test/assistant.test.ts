@@ -107,22 +107,30 @@ describe('assistant API', { skip: integrationSkip }, () => {
     assert.equal((await call('POST', '/api/assistant/search', { message: '' })).status, 400);
   });
 
-  it('uses the provider intent only when it is valid', async () => {
+  it('asks the provider only when the rules do not understand the product, and validates its answer', async () => {
     config.aiProvider = 'openai';
     config.openAiApiKey = 'clave-de-prueba';
     const realFetch = globalThis.fetch;
     let answer = '';
-    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) =>
-      String(input).startsWith(config.openAiBaseUrl) ? new Response(JSON.stringify({ choices: [{ message: { content: answer } }] })) : realFetch(input, init),
-    );
+    let providerCalls = 0;
+    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      if (!String(input).startsWith(config.openAiBaseUrl)) return realFetch(input, init);
+      providerCalls++;
+      return new Response(JSON.stringify({ choices: [{ message: { content: answer } }] }));
+    });
     answer = JSON.stringify({ terms: ['huevos'], preference: 'best_grade' });
-    const improved = await call('POST', '/api/assistant/search', { message: 'quiero los mejores huevitos' });
-    assert.equal(improved.body.data.intent.preference, 'best_grade');
-    assert.equal(improved.body.data.results[0].name, 'Huevos AA x 30');
+    const clear = await call('POST', '/api/assistant/search', { message: 'quiero los mejores huevitos' });
+    assert.equal(providerCalls, 0, 'the rules understood it');
+    assert.equal(clear.body.data.intent.preference, 'best_grade');
+
+    const unclear = await call('POST', '/api/assistant/search', { message: 'ayúdame por favor' });
+    assert.equal(providerCalls, 1);
+    assert.equal(unclear.body.data.intent.preference, 'best_grade');
+    assert.equal(unclear.body.data.results[0].name, 'Huevos AA x 30');
 
     answer = JSON.stringify({ terms: ["'; DROP TABLE products; --"], preference: 'cheapest' });
-    const fallback = await call('POST', '/api/assistant/search', { message: 'huevos baratos' });
-    assert.deepEqual(fallback.body.data.intent.terms, ['huevo']);
+    const invalid = await call('POST', '/api/assistant/search', { message: 'me ayudas?' });
+    assert.deepEqual(invalid.body.data.intent.terms, []);
   });
 
   it('lets a store save valid coordinates only', async () => {

@@ -124,6 +124,18 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     await call('GET', '/api/suggestions', undefined, token);
     await call('GET', '/api/suggestions', undefined, token);
     assert.equal(providerCalls, 1, 'texts are stored once, not requested on every visit');
+
+    // A product added later the same day gets the rule text: still one call per store per day.
+    await call('POST', '/api/products', { name: 'Queso campesino', category: 'Lácteos', price: 9000, stock: 4, expirationDate: addDays(today, 2) }, token);
+    const sameDay = (await call('GET', '/api/suggestions', undefined, token)).body.data.find((item: { productName: string }) => item.productName === 'Queso campesino');
+    assert.equal(sameDay.source, 'local');
+    assert.equal(providerCalls, 1);
+
+    // The next day the store gets one new batch with all its suggestions.
+    const { refreshSuggestions } = await import('../src/services/suggestions.js');
+    const storeId = (await call('GET', '/api/stores/me', undefined, token)).body.data.id as string;
+    await refreshSuggestions(storeId, addDays(today, 1));
+    assert.equal(providerCalls, 2);
   });
 
   it('is only for stores', async () => {

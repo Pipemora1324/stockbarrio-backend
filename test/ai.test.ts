@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { config } from '../src/config.js';
-import { getRecommendations, localRecommendation, validateAiCombo, type RecommendationProduct } from '../src/services/ai.js';
+import { getRecommendations, localRecommendation, type RecommendationProduct } from '../src/services/ai.js';
 
 const today = '2026-10-18';
 const product = (overrides: Partial<RecommendationProduct>): RecommendationProduct => ({
@@ -49,21 +49,6 @@ describe('localRecommendation', () => {
   });
 });
 
-describe('validateAiCombo', () => {
-  const input = { budget: 10000, neighborhood: 'Centro', products: [product({ id: 'a', offerPrice: 3000, stock: 2 }), product({ id: 'b', offerPrice: 2000 })] };
-
-  it('accepts a valid combo and recomputes the totals', () => {
-    const result = validateAiCombo(input, { suggestion: 'Combo sugerido por la IA.', items: [{ productId: 'a', quantity: 2 }, { productId: 'b', quantity: 1 }] }, today);
-    assert.deepEqual([result?.total, result?.confidence], [8000, 0.9]);
-  });
-
-  it('rejects combos over budget, over stock or with unknown products', () => {
-    assert.equal(validateAiCombo(input, { suggestion: 'Combo demasiado caro.', items: [{ productId: 'b', quantity: 3 }, { productId: 'a', quantity: 2 }] }, today), null);
-    assert.equal(validateAiCombo(input, { suggestion: 'Más que el stock.', items: [{ productId: 'a', quantity: 3 }] }, today), null);
-    assert.equal(validateAiCombo(input, { suggestion: 'Producto inventado.', items: [{ productId: 'zzz', quantity: 1 }] }, today), null);
-  });
-});
-
 describe('getRecommendations', () => {
   afterEach(() => {
     mock.restoreAll();
@@ -71,12 +56,12 @@ describe('getRecommendations', () => {
     config.openAiApiKey = '';
   });
 
-  it('falls back to the local combo when the provider answers something invalid', async () => {
+  it('never calls the AI provider, even when one is configured', async () => {
     config.aiProvider = 'openai';
     config.openAiApiKey = 'clave-de-prueba';
-    mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"suggestion":"Combo enorme.","items":[{"productId":"a","quantity":50}]}' } }] })));
+    const fetchMock = mock.method(globalThis, 'fetch', async () => new Response('{}'));
     const result = await getRecommendations({ budget: 30000, neighborhood: 'Centro', products: [product({ id: 'a', expirationDate: '2099-01-01' })] });
-    assert.equal(result.confidence, 0.8);
+    assert.equal(fetchMock.mock.callCount(), 0);
     assert.equal(result.products[0].quantity, 3);
   });
 });
