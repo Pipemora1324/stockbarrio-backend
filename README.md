@@ -11,13 +11,12 @@ El frontend (Angular) está en un repositorio aparte: [stockbarrio-frontend](htt
 - **Cuentas con JWT y tres roles.** Las tiendas (`store`) gestionan su inventario y los clientes (`customer`) reciben alertas. El registro público solo crea esos dos tipos de cuenta; el rol `admin` solo se crea con el script de seed.
 - **Productos por tienda**, con stock, precios en pesos, descuentos y fechas de vencimiento. Cada tienda solo puede crear, editar y borrar sus propios productos (si no, responde 403).
 - **Descuentos sugeridos.** Se calculan con reglas claras (días para vencer, exceso de stock y categoría perecedera) y la tienda los aprueba o rechaza. Nada se aplica sin aprobación.
-- **Asistente de búsqueda** en español ("busco huevos baratos", "leche cerca de mí"). Ordena por precio, descuento, categoría, cercanía o vencimiento, y calcula la distancia con Haversine desde la ubicación del cliente o desde su barrio. La ubicación no se guarda.
-- **Combos con presupuesto**: priorizan lo que vence primero y respetan el presupuesto y el stock.
+- **Asistente de chat** en español ("busco huevos baratos", "leche en Chapinero"). Ordena por precio, descuento, categoría o vencimiento. La cercanía es solo por barrio: si el cliente pide algo "cerca de mí" sin decir el barrio, el asistente se lo pregunta y le dice en qué barrios hay tiendas.
 - **Alertas y notificaciones dentro de la app.** Cuando una tienda aprueba un descuento, se avisa a los clientes cuyas alertas coinciden. Hay un solo aviso por producto y suscripción, y un límite diario.
 - **IA opcional.** Todo funciona en local sin claves. Con un proveedor compatible con OpenAI se pueden mejorar textos y orden, pero su respuesta se valida siempre con Zod y contra el stock, las cantidades y los límites; si falla, se usan las reglas locales.
-- **Ofertas** con filtros por barrio, categoría y cercanía.
+- **Ofertas** con filtros por barrio, categoría y texto, y orden por descuento o por vencimiento.
 - **Cuenta**: recuperar contraseña por correo, perfil para cambiar nombre, contraseña y correo.
-- **Seguridad**: validación con Zod (nombres, teléfono colombiano, correo, contraseña, productos y coordenadas), CORS, Helmet y límite de peticiones.
+- **Seguridad**: validación con Zod (nombres, teléfono colombiano, correo, contraseña y productos), CORS, Helmet y límite de peticiones.
 
 ## Migraciones
 
@@ -66,7 +65,7 @@ Levanta PostgreSQL (puerto 5432) y la API (puerto 3000). Puedes sobrescribir `JW
 | `JWT_SECRET` | Secreto para firmar los tokens. Obligatorio en producción | valor de desarrollo |
 | `JWT_EXPIRES_IN` | Duración del token | `8h` |
 | `CORS_ORIGIN` | Origen permitido para el frontend | `http://localhost:4200` |
-| `AI_PROVIDER` | `local` calcula las recomendaciones sin servicios externos; cualquier otro valor usa el proveedor compatible con OpenAI | `local` |
+| `AI_PROVIDER` | `local` responde solo con reglas, sin servicios externos; cualquier otro valor usa el proveedor compatible con OpenAI | `local` |
 | `OPENAI_API_KEY` | Clave del proveedor compatible con OpenAI | vacío |
 | `OPENAI_MODEL` | Modelo a usar | `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | URL base del proveedor | `https://api.openai.com/v1` |
@@ -146,18 +145,17 @@ Sin `TEST_DATABASE_URL` solo corren las pruebas unitarias. Las pruebas se niegan
 | `POST /api/products` · `PUT /api/products/:id` · `DELETE /api/products/:id` | Tienda dueña | Crear, editar y borrar productos |
 | `GET /api/stores` · `GET /api/stores/:id` | Público | Tiendas |
 | `GET /api/stores/neighborhoods` | Público | Barrios con tiendas activas |
-| `GET /api/stores/me` · `PUT /api/stores/me` | Tienda | Ver y guardar las coordenadas de la tienda (deben quedar dentro de Colombia) |
+| `GET /api/stores/me` | Tienda | Datos de la tienda: nombre, barrio, dirección y teléfono |
 | `GET /api/suggestions` | Tienda | Analiza el inventario y devuelve los descuentos sugeridos pendientes |
 | `POST /api/suggestions/:id/approve` · `/:id/reject` · `/approve-all` | Tienda | Aprobar (aplica el descuento y notifica), rechazar o aprobar todas |
-| `POST /api/assistant/search` | Público (30 por minuto) | `{ message, latitude?, longitude?, neighborhood? }` → respuesta en español y resultados |
-| `POST /api/recommendations` | Público | Combo con `{ budget, neighborhood, productIds? }` |
-| `POST /api/assistant/chat` | Público (10 por minuto y 100 por día, por IP y por usuario) | Chat con `{ messages, latitude?, longitude?, neighborhood? }` → `{ reply, mode, intent, results }` |
-| `POST /api/offers/search` | Público | Ofertas con filtros `neighborhood`, `category`, `search`, `radiusKm` y orden `discount`, `nearest` o `expiring` |
+| `POST /api/assistant/search` | Público (30 por minuto) | `{ message, neighborhood? }` → respuesta en español y resultados (la usaba el asistente anterior; el frontend ya no la llama) |
+| `POST /api/assistant/chat` | Público (10 por minuto y 100 por día, por IP y por usuario) | Chat con `{ messages, neighborhood? }` → `{ reply, mode, intent, results }` |
+| `POST /api/offers/search` | Público | Ofertas con filtros `neighborhood`, `category` y `search`, y orden `discount` o `expiring` |
 | `GET /api/products/categories` | Público | Lista de categorías permitidas |
 | `POST /api/auth/forgot-password` · `POST /api/auth/reset-password` | Público (con límites) | Recuperar la contraseña con un enlace de un solo uso que vence en 30 minutos |
 | `GET /api/account` · `PATCH /api/account/name` · `POST /api/account/password` · `POST /api/account/email` | Con sesión | Perfil: nombre, contraseña (pide la actual) y correo (pide la actual y envía un enlace al correo nuevo) |
 | `POST /api/account/email/confirm` | Público | Confirma el correo nuevo desde el enlace |
-| `GET /api/alerts` · `POST /api/alerts` · `DELETE /api/alerts/:id` | Cliente | Alertas por producto o categoría, barrio o radio (con `locationConsent`) y descuento mínimo |
+| `GET /api/alerts` · `POST /api/alerts` · `DELETE /api/alerts/:id` | Cliente | Alertas por producto o categoría, barrio y descuento mínimo |
 | `GET /api/notifications` · `GET /unread-count` · `POST /:id/read` · `POST /read-all` | Cliente | Bandeja de notificaciones |
 
 ### Reglas de descuento
@@ -179,8 +177,8 @@ Sobre la base se suman puntos y se ajusta así:
 
 ### Privacidad
 
-- La ubicación que el cliente comparte en el asistente solo se usa durante esa petición.
-- En las alertas por radio se guarda redondeada (unos 100 m) y solo con consentimiento explícito.
+- La API no pide, no guarda y no expone coordenadas: ni del cliente ni de las tiendas. Las columnas `latitude`, `longitude` y `radius_km` siguen en la base (no se borró nada), pero ya no se leen ni se escriben. Si un cliente viejo manda coordenadas, se ignoran.
+- Las alertas antiguas que eran por radio ya no generan avisos: sin distancias no hay forma de saber qué tiendas les quedan cerca.
 - Las notificaciones solo se muestran dentro de la app: no hay canales externos registrados. Para agregar correo o WhatsApp se implementa `NotificationChannel` en `src/services/notifications.ts`.
 
 ## Alertas y notificaciones (pausadas)
@@ -233,7 +231,6 @@ AI_FALLBACK_API_KEY=tu-clave-de-gemini
   - El razonamiento interno nunca se muestra: se descarta cualquier bloque `<think>` y solo se usa el JSON validado.
 - **Límites por persona.** 5 mensajes con IA por minuto y 30 por día (`AI_CHAT_PER_*`), por usuario o por IP. Al pasarlos, el chat sigue respondiendo con reglas.
 - **Descuentos.** Las explicaciones se piden una vez por tienda y por día, en un solo lote con todas sus sugerencias, y se guardan en la base. Las reglas siguen decidiendo el porcentaje.
-- **Combos.** No usan IA.
 - **Logs.** Nunca muestran claves: solo indican qué modelo quedó en pausa y por qué.
 
 ### Cómo se usa el modelo en el chat
@@ -245,7 +242,7 @@ AI_FALLBACK_API_KEY=tu-clave-de-gemini
 Salvaguardas:
 
 - **Anti-alucinación.** Cada precio, porcentaje, tienda y referencia se compara con los resultados; si no coincide, se usa la plantilla.
-- **Privacidad.** Al proveedor nunca se envían coordenadas, correos, teléfonos ni nombres de usuarios.
+- **Privacidad.** Al proveedor nunca se envían correos, teléfonos ni nombres de usuarios. El frontend avisa bajo el campo del chat que el mensaje se procesa con un servicio de IA externo. Si el modelo menciona una distancia, la respuesta se descarta, porque la app no conoce distancias.
 
 ## Cuenta y correo
 
@@ -280,10 +277,10 @@ Después, la persona puede usar "¿Olvidaste tu contraseña?" con el correo nuev
 
 - `src/routes`: rutas de la API.
 - `src/repositories`: acceso a PostgreSQL.
-- `src/services`: reglas de descuento, sugerencias, asistente y chat, ofertas, combos, notificaciones, cuenta, correo y cliente opcional de IA con respaldo.
+- `src/services`: reglas de descuento, sugerencias, asistente y chat, ofertas, notificaciones, cuenta, correo y cliente opcional de IA con respaldo.
 - `src/middleware`: verificación del token y de los roles.
 - `src/errors.ts`: errores de la API y manejador de errores.
-- `src/dates.ts`, `src/geo.ts`, `src/format.ts`: fechas en hora de Bogotá, distancias y formato de pesos.
+- `src/dates.ts`, `src/format.ts`: fechas en hora de Bogotá y formato de pesos.
 - `src/seed.ts`: datos de ejemplo.
 - `src/migrations`: esquema de la base de datos.
 - `test`: pruebas unitarias y de integración.
