@@ -96,7 +96,7 @@ export const productRepository = {
     if (filters.category) conditions.push(`lower(p.category) = lower(${addParam(filters.category)})`);
     if (filters.search) conditions.push(`${searchableText} LIKE ${addParam(`%${filters.search}%`)}`);
     const result = await database.query<SearchRow>(
-      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address, s.latitude, s.longitude
+      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address
        FROM products p JOIN stores s ON s.id = p.store_id WHERE ${conditions.join(' AND ')}
        ORDER BY p.discount_percent DESC, p.expiration_date ASC LIMIT ${addParam(filters.limit)}`,
       params,

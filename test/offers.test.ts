@@ -11,8 +11,6 @@ describe('offers API', { skip: integrationSkip }, () => {
   const setup = async () => {
     const near = await registerStore('ofertas-cerca', { storeName: 'Tienda Cerca', neighborhood: 'Chapinero' });
     const far = await registerStore('ofertas-lejos', { storeName: 'Tienda Lejos', neighborhood: 'Suba' });
-    await call('PUT', '/api/stores/me', { latitude: 4.641, longitude: -74.0636 }, near.token);
-    await call('PUT', '/api/stores/me', { latitude: 4.7286, longitude: -74.0657 }, far.token);
     const base = { stock: 10, price: 10000 };
     await call('POST', '/api/products', { ...base, name: 'Leche entera', category: 'Lácteos', discountPercent: 20, expirationDate: addDays(today, 6) }, near.token);
     await call('POST', '/api/products', { ...base, name: 'Pan tajado', category: 'Panadería', discountPercent: 40, expirationDate: addDays(today, 3) }, far.token);
@@ -35,19 +33,19 @@ describe('offers API', { skip: integrationSkip }, () => {
     assert.deepEqual(names((await call('POST', '/api/offers/search', { search: 'queso' })).body), ['Queso campesino']);
   });
 
-  it('sorts by expiration or by distance and filters by radius', async () => {
+  it('sorts by expiration date', async () => {
     assert.deepEqual(names((await call('POST', '/api/offers/search', { sort: 'expiring' })).body), ['Queso campesino', 'Pan tajado', 'Leche entera']);
-    const nearest = await call('POST', '/api/offers/search', { sort: 'nearest', latitude: 4.6405, longitude: -74.064 });
-    assert.equal(nearest.body.data[0].name, 'Leche entera');
-    assert.ok(nearest.body.data[0].distanceKm < 0.2);
-    const inRadius = await call('POST', '/api/offers/search', { latitude: 4.6405, longitude: -74.064, radiusKm: 2 });
-    assert.deepEqual(names(inRadius.body), ['Leche entera']);
   });
 
-  it('asks for a location to sort by distance', async () => {
-    const result = await call('POST', '/api/offers/search', { sort: 'nearest' });
-    assert.equal(result.status, 400);
-    assert.match(result.body.message, /comparte tu ubicación/);
+  it('no longer sorts by distance nor returns distances, and ignores coordinates sent by older clients', async () => {
+    const nearest = await call('POST', '/api/offers/search', { sort: 'nearest' });
+    assert.equal(nearest.status, 400);
+    const withCoordinates = await call('POST', '/api/offers/search', { latitude: 4.6405, longitude: -74.064, radiusKm: 2 });
+    assert.equal(withCoordinates.status, 200);
+    assert.deepEqual(names(withCoordinates.body), ['Pan tajado', 'Queso campesino', 'Leche entera']);
+    const [first] = withCoordinates.body.data;
+    assert.equal('distanceKm' in first, false);
+    assert.equal(JSON.stringify(withCoordinates.body).includes('latitude'), false);
   });
 
   it('keeps an offer until the end of its expiration day and hides it the day after', async () => {
