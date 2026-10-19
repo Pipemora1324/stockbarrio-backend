@@ -1,42 +1,50 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { createToken, hashPassword, verifyPassword } from '../services/auth.js';
+import { createToken, hashPassword, verifyPassword, type AuthUser } from '../services/auth.js';
 import { userRepository } from '../repositories/user.js';
 import { database } from '../database.js';
 
 const router = Router();
+// Public registration only creates store accounts; admins are created by the seed script.
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(100),
-  email: z.string().email().max(160),
+  email: z.string().trim().email().max(160),
   password: z.string().min(8).max(128),
-  storeName: z.string().trim().min(2).max(120).optional(),
-  neighborhood: z.string().trim().min(2).max(80).optional(),
-  address: z.string().trim().min(5).max(200).optional(),
+  storeName: z.string().trim().min(2).max(120),
+  neighborhood: z.string().trim().min(2).max(80),
+  address: z.string().trim().min(5).max(200),
   phone: z.string().trim().max(30).optional(),
 });
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
+const loginSchema = z.object({ email: z.string().trim().email(), password: z.string().min(1) });
+
+const toAuthUser = (user: { id: string; name: string; email: string; role: AuthUser['role']; storeId?: string | null }): AuthUser => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  storeId: user.storeId ?? undefined,
+});
 
 router.post('/register', async (request, response, next) => {
   try {
     const input = registerSchema.parse(request.body);
     if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
+    const stores = await database.query('SELECT id FROM stores WHERE lower(name) = lower($1) AND lower(neighborhood) = lower($2)', [input.storeName, input.neighborhood]);
+    if (stores.rows.length) return response.status(409).json({ message: 'Ya existe una tienda con este nombre en ese barrio.' });
     const passwordHash = await hashPassword(input.password);
-    let storeId: string | undefined;
-    let user: Awaited<ReturnType<typeof userRepository.create>>;
-    if (input.storeName) {
-      const stores = await database.query('SELECT id FROM stores WHERE name = $1 AND neighborhood = $2', [input.storeName, input.neighborhood ?? '']);
-      if (stores.rows.length) return response.status(409).json({ message: 'Ya existe una tienda con este nombre.' });
-      user = await database.withTransaction(async (client) => {
-        const createdUser = await client.query('INSERT INTO users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING *', [input.name, input.email.toLowerCase(), passwordHash, 'store']);
-        const createdStore = await client.query('INSERT INTO stores (user_id, name, neighborhood, address, phone) VALUES ($1,$2,$3,$4,$5) RETURNING id', [createdUser.rows[0].id, input.storeName, input.neighborhood ?? '', input.address ?? '', input.phone ?? '']);
-        await client.query('UPDATE users SET store_id = $1 WHERE id = $2', [createdStore.rows[0].id, createdUser.rows[0].id]);
-        return { ...createdUser.rows[0], storeId: createdStore.rows[0].id };
-      });
-      storeId = user.storeId;
-    } else {
-      user = await userRepository.create({ name: input.name, email: input.email, passwordHash, role: 'admin' });
-    }
-    response.status(201).json({ message: 'La cuenta se ha creado correctamente.', token: createToken(user), user: { id: user.id, name: user.name, role: user.role, storeId } });
+    const user = await database.withTransaction(async (client) => {
+      const createdUser = await client.query<{ id: string; name: string; email: string }>(
+        'INSERT INTO users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id, name, email',
+        [input.name, input.email.toLowerCase(), passwordHash, 'store'],
+      );
+      const createdStore = await client.query<{ id: string }>(
+        'INSERT INTO stores (user_id, name, neighborhood, address, phone) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+        [createdUser.rows[0].id, input.storeName, input.neighborhood, input.address, input.phone ?? ''],
+      );
+      await client.query('UPDATE users SET store_id = $1 WHERE id = $2', [createdStore.rows[0].id, createdUser.rows[0].id]);
+      return toAuthUser({ ...createdUser.rows[0], role: 'store', storeId: createdStore.rows[0].id });
+    });
+    response.status(201).json({ message: 'La cuenta se ha creado correctamente.', token: createToken(user), user });
   } catch (error) {
     next(error);
   }
@@ -47,7 +55,7 @@ router.post('/login', async (request, response, next) => {
     const input = loginSchema.parse(request.body);
     const user = await userRepository.getByEmail(input.email);
     if (!user || !(await verifyPassword(input.password, user.passwordHash))) return response.status(401).json({ message: 'El correo o la contraseña son incorrectos.' });
-    const safeUser = { id: user.id, name: user.name, email: user.email, role: user.role, storeId: user.storeId };
+    const safeUser = toAuthUser(user);
     response.json({ message: 'Inicio de sesión correcto.', token: createToken(safeUser), user: safeUser });
   } catch (error) {
     next(error);
