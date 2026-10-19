@@ -4,8 +4,11 @@ import type { AddressInfo } from 'node:net';
 import { after, before } from 'node:test';
 
 // Integration tests need a disposable database whose name ends in "_test": it is wiped before each file.
+// Import this helper first in every test file so the pool is created with the test database.
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
-export const integrationSkip = testDatabaseUrl && /_test(\?.*)?$/.test(testDatabaseUrl) ? false : 'TEST_DATABASE_URL no está definida o no termina en _test';
+const usableTestUrl = Boolean(testDatabaseUrl && /_test(\?.*)?$/.test(testDatabaseUrl));
+if (usableTestUrl) process.env.DATABASE_URL = testDatabaseUrl;
+export const integrationSkip = usableTestUrl ? false : 'TEST_DATABASE_URL no está definida o no termina en _test';
 
 export interface TestContext {
   pool: typeof import('../../src/database.js').pool;
@@ -42,9 +45,10 @@ export const useTestApi = (): TestContext => {
   };
 
   before(async () => {
-    process.env.DATABASE_URL = testDatabaseUrl;
     const database = await import('../../src/database.js');
     context.pool = database.pool;
+    const { rows } = await context.pool.query<{ name: string }>('SELECT current_database() AS name');
+    assert.match(rows[0].name, /_test$/, 'Los tests solo pueden vaciar una base cuyo nombre termine en _test.');
     await context.pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
     const { migrate } = await import('../../src/migrate.js');
     await migrate();
