@@ -2,7 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { badRequest, conflict, notFound } from '../errors.js';
 import { authenticate, requireCustomer, type AuthenticatedRequest } from '../middleware/auth.js';
+import { isInColombia } from '../geo.js';
 import { alertRepository } from '../repositories/alert.js';
+import { colombiaCoordinatesMessage, discountSchema, latitudeSchema, longitudeSchema } from '../validation.js';
 
 const router = Router();
 export const maxAlertsPerCustomer = 20;
@@ -13,16 +15,17 @@ const alertSchema = z
     query: optionalText(80),
     category: optionalText(80),
     neighborhood: optionalText(80),
-    latitude: z.number().min(-90).max(90).optional(),
-    longitude: z.number().min(-180).max(180).optional(),
+    latitude: latitudeSchema.optional(),
+    longitude: longitudeSchema.optional(),
     radiusKm: z.number().min(0.5).max(50).optional(),
-    minDiscount: z.coerce.number().int().min(0).max(90).default(0),
+    minDiscount: discountSchema.default(0),
     // The position is saved only if the customer explicitly agrees to it.
     locationConsent: z.boolean().default(false),
   })
   .refine((input) => input.query || input.category, { message: 'Escribe un producto o una categoría para la alerta.', path: ['query'] })
   .refine((input) => (input.latitude === undefined) === (input.longitude === undefined), { message: 'Envía latitud y longitud juntas.', path: ['latitude'] })
-  .refine((input) => input.radiusKm === undefined || input.latitude !== undefined, { message: 'Para alertas por radio necesitamos tu ubicación aproximada.', path: ['radiusKm'] });
+  .refine((input) => input.radiusKm === undefined || input.latitude !== undefined, { message: 'Para alertas por radio necesitamos tu ubicación aproximada.', path: ['radiusKm'] })
+  .refine((input) => input.latitude === undefined || input.longitude === undefined || isInColombia({ latitude: input.latitude, longitude: input.longitude }), { message: colombiaCoordinatesMessage, path: ['latitude'] });
 
 const roundCoordinate = (value: number) => Math.round(value * 1000) / 1000;
 
