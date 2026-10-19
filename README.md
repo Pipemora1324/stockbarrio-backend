@@ -69,6 +69,7 @@ Levanta PostgreSQL (puerto 5432) y la API (puerto 3000). Puedes sobrescribir `JW
 | `OPENAI_MODEL` | Modelo a usar | `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | URL base del proveedor | `https://api.openai.com/v1` |
 | `AI_TIMEOUT_MS` | Tiempo máximo de espera del proveedor | `8000` |
+| `ENABLE_ALERTS` | `true` activa las alertas y notificaciones. Apagadas, los endpoints responden, pero aprobar descuentos no genera notificaciones | `false` |
 | `NOTIFICATIONS_DAILY_LIMIT` | Máximo de notificaciones por cliente al día (hora de Bogotá) | `10` |
 | `AI_MODELS` | Cadena de modelos del principal, separados por comas. Si no está, se usa solo `OPENAI_MODEL` | vacío |
 | `AI_FALLBACK_BASE_URL` / `AI_FALLBACK_API_KEY` | Proveedor de respaldo compatible con OpenAI (opcional) | vacío |
@@ -178,6 +179,21 @@ Sobre la base se suman puntos y se ajusta así:
 - La ubicación que el cliente comparte en el asistente solo se usa durante esa petición.
 - En las alertas por radio se guarda redondeada (unos 100 m) y solo con consentimiento explícito.
 - Las notificaciones solo se muestran dentro de la app: no hay canales externos registrados. Para agregar correo o WhatsApp se implementa `NotificationChannel` en `src/services/notifications.ts`.
+
+## Alertas y notificaciones (pausadas)
+
+Por ahora la app solo muestra la sección de Ofertas: las alertas y la bandeja de notificaciones están apagadas con `ENABLE_ALERTS=false` (valor por defecto).
+
+Mientras estén apagadas:
+
+- Los endpoints `/api/alerts` y `/api/notifications` siguen respondiendo.
+- Las tablas y migraciones no cambian.
+- Aprobar un descuento no crea notificaciones (`notified: 0`).
+
+Para reactivarlas:
+
+1. Pon `ENABLE_ALERTS=true` en Render.
+2. Pon `ENABLE_ALERTS=true` en Vercel; el frontend lo lee al compilar (ver el README del frontend).
 
 ## IA
 
