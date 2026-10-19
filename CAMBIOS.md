@@ -277,3 +277,10 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
 ### Pruebas
 
 126 en verde, con proveedores simulados (sin claves reales): cadena de modelos, 429 con `Retry-After`, cuota diaria, presupuesto de tokens, razonamiento oculto, claves fuera de los logs, reglas primero, límites por persona, prompts bajo 700 tokens y una llamada por tienda y por día.
+
+## Alertas y notificaciones en pausa
+
+- **Variable nueva:** `ENABLE_ALERTS`, con valor por defecto `false`. Mientras esté apagada, aprobar sugerencias (una o todas) no genera notificaciones y la respuesta trae `notified: 0`.
+- **Sin cambios:** los endpoints, las tablas y las migraciones de alertas y notificaciones se quedan como están.
+- **Pruebas:** un test nuevo comprueba que con la bandera apagada no se crea ninguna notificación. Los tests de notificaciones la encienden para seguir probando esa parte.
+- **Reactivar:** `ENABLE_ALERTS=true` en Render (y en Vercel para el frontend).
