@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createToken, hashPassword, verifyPassword, type AuthUser } from '../services/auth.js';
 import { userRepository } from '../repositories/user.js';
 import { database } from '../database.js';
+import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 // Public registration only creates store accounts; admins are created by the seed script.
@@ -57,6 +58,16 @@ router.post('/login', async (request, response, next) => {
     if (!user || !(await verifyPassword(input.password, user.passwordHash))) return response.status(401).json({ message: 'El correo o la contraseña son incorrectos.' });
     const safeUser = toAuthUser(user);
     response.json({ message: 'Inicio de sesión correcto.', token: createToken(safeUser), user: safeUser });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/me', authenticate, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const user = await userRepository.getById(request.user!.id);
+    if (!user) return response.status(401).json({ message: 'La sesión ya no es válida.' });
+    response.json({ user: toAuthUser(user) });
   } catch (error) {
     next(error);
   }
