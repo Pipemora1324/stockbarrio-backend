@@ -91,3 +91,42 @@ npm run seed && npm run dev
 curl -X POST localhost:3000/api/assistant/search -H 'content-type: application/json' -d '{"message":"busco huevos baratos"}'
 curl -X POST localhost:3000/api/assistant/search -H 'content-type: application/json' -d '{"message":"leche cerca de mí","latitude":4.6405,"longitude":-74.064}'
 ```
+
+## Fase 4: alertas y notificaciones
+
+### Qué cambió
+
+- **Rol `customer`.** `POST /api/auth/register` con `accountType: "customer"` crea una cuenta de cliente con nombre, correo y contraseña. Sin `accountType` (o con `"store"`) sigue creando tiendas, así que el frontend actual no se rompe. Con cualquier otro valor, incluido `"admin"`, responde 400: el registro público nunca crea administradores.
+- **Alertas del cliente** (`/api/alerts`, solo clientes):
+  - Se pueden listar (`GET`), crear (`POST`) y eliminar (`DELETE /:id`).
+  - Una alerta lleva producto o categoría, más un barrio o un radio, y un descuento mínimo.
+  - Para un radio hace falta `locationConsent: true`. La posición se guarda redondeada a 3 decimales (unos 100 m), y al eliminar la alerta se desactiva y deja de usarse.
+  - Máximo 20 alertas activas por cliente.
+- **Notificaciones.** Cuando una tienda aprueba un descuento (uno a uno o "aprobar todas"), se avisa a los clientes cuyas alertas coinciden:
+  - El nombre debe contener las palabras de la alerta (con plurales), la categoría debe ser igual y el descuento debe alcanzar el mínimo.
+  - El barrio debe coincidir o, para alertas por radio, la tienda debe estar dentro del radio (Haversine; si la tienda no tiene coordenadas, no coincide).
+  - El mensaje es corto y en español, con tienda, barrio, producto, precio, distancia si aplica y vencimiento. Por ejemplo: "Tienda Doña Luz (Chapinero) tiene Leche entera 1 L a $ 2.940. Vence en 2 días."
+  - **Sin spam:**
+    - una sola vez por suscripción y producto (índice único);
+    - una sola por persona y producto, aunque tenga varias alertas que coincidan;
+    - un límite diario por persona (`NOTIFICATIONS_DAILY_LIMIT`, 10 por defecto, día de Bogotá).
+  - La respuesta de aprobar incluye `notified` con el número de avisos creados. Si fallan las notificaciones, el descuento queda aplicado igual.
+- **Bandeja dentro de la app** (`/api/notifications`, solo clientes):
+  - `GET` devuelve las últimas 50 y el número de no leídas.
+  - `GET /unread-count` devuelve solo el contador.
+  - `POST /:id/read` marca una como leída y `POST /read-all` las marca todas.
+- **Canales.** `NotificationChannel` (`src/services/notifications.ts`) es la interfaz para agregar correo o WhatsApp más adelante. Por defecto no hay ningún canal externo registrado, así que ningún dato sale de la app. No se integró ningún servicio de pago.
+- **Seed.** Ahora crea también `cliente.demo@stockbarrio.test`, con alertas de huevos y de leche en Chapinero.
+
+### Migraciones
+
+- `004_customer_role.sql` amplía el `CHECK` de `users.role` a `admin`, `store` y `customer`. Corre dentro de la transacción del migrador y no reescribe filas.
+- `005_alerts.sql` crea las tablas `alert_subscriptions` y `notifications`, aditivas y con RLS automático.
+
+### Variables nuevas para Render
+
+- `NOTIFICATIONS_DAILY_LIMIT` es opcional (por defecto 10). Solo hay que agregarla si quieres otro límite.
+
+### Cómo probarlo
+
+`npm run seed`, entra como `tienda.donaluz@stockbarrio.test` y aprueba la sugerencia de "Leche entera 1 L". Luego entra como `cliente.demo@stockbarrio.test` y llama `GET /api/notifications`.
