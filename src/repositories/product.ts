@@ -43,7 +43,36 @@ export const buildProductFilters = (filters: ProductFilters) => {
   return { where: conditions.join(' AND '), params };
 };
 
+export interface SearchRow extends ProductRecord {
+  storeName: string;
+  neighborhood: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+// Lowercase and accent-free text of a product, so "lacteos" matches "Lácteos".
+const searchableText = `translate(lower(p.name || ' ' || p.category || ' ' || p.description), 'áéíóúüñ', 'aeiouun')`;
+
 export const productRepository = {
+  search: async (terms: string[], options: { neighborhood?: string; matchAll: boolean; limit: number }) => {
+    const params: unknown[] = [];
+    const addParam = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    const termConditions = terms.map((term) => `${searchableText} LIKE ${addParam(`%${term}%`)}`);
+    const conditions = ['p.active = true', 's.active = true', 'p.stock > 0'];
+    if (termConditions.length) conditions.push(`(${termConditions.join(options.matchAll ? ' AND ' : ' OR ')})`);
+    if (options.neighborhood) conditions.push(`lower(s.neighborhood) = lower(${addParam(options.neighborhood)})`);
+    const result = await database.query<SearchRow>(
+      `SELECT ${productColumns}, s.name AS "storeName", s.neighborhood, s.address, s.latitude, s.longitude
+       FROM products p JOIN stores s ON s.id = p.store_id WHERE ${conditions.join(' AND ')}
+       ORDER BY p.expiration_date ASC LIMIT ${addParam(options.limit)}`,
+      params,
+    );
+    return result.rows;
+  },
   list: async (filters: ProductFilters) => {
     const { where, params } = buildProductFilters(filters);
     const result = await database.query<ProductRecord & { neighborhood: string; storeName: string }>(
