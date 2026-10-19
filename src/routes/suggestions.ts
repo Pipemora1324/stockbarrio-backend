@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { config } from '../config.js';
 import { z } from 'zod';
 import { authenticate, requireStore, type AuthenticatedRequest } from '../middleware/auth.js';
 import { notifyDiscountApplied } from '../services/notifications.js';
@@ -8,11 +9,14 @@ const router = Router();
 const idSchema = z.object({ id: z.string().uuid() });
 
 // A failure while notifying customers must never undo or hide an approved discount.
-const notifyCustomers = (applied: AppliedDiscount[]) =>
-  notifyDiscountApplied(applied).catch((error: unknown) => {
+// With ENABLE_ALERTS off (the default) no notifications are created.
+const notifyCustomers = async (applied: AppliedDiscount[]) => {
+  if (!config.enableAlerts) return 0;
+  return notifyDiscountApplied(applied).catch((error: unknown) => {
     console.error('No se pudieron generar las notificaciones del descuento.', error instanceof Error ? error.message : error);
     return 0;
   });
+};
 
 router.use(authenticate, requireStore);
 

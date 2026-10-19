@@ -58,6 +58,8 @@ export const config = {
   smtpPass: process.env.SMTP_PASS ?? '',
   mailFrom: process.env.MAIL_FROM ?? 'StockBarrio <no-responder@stockbarrio.local>',
   accountTokenTtlMinutes: 30,
+  // Alerts and notifications are paused for now: endpoints stay, but approving discounts creates no notices.
+  enableAlerts: process.env.ENABLE_ALERTS === 'true',
   // Maximum in-app notifications a customer can receive per day (Bogota time), to avoid spam.
   notificationsDailyLimit: Math.max(1, Number(process.env.NOTIFICATIONS_DAILY_LIMIT ?? 10)),
 };
