@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { storeRepository, type StoreRecord } from '../repositories/store.js';
 
-export type UserRole = 'admin' | 'store';
+export type UserRole = 'admin' | 'store' | 'customer';
 
 export interface AuthenticatedRequest extends Request {
   user?: { id: string; role: UserRole; name: string; email?: string; storeId?: string };
@@ -48,4 +48,12 @@ export const requireStore = async (request: AuthenticatedRequest, response: Resp
   } catch (error) {
     next(error);
   }
+};
+
+export const requireCustomer = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+  if (request.user?.role !== 'customer') {
+    response.status(403).json({ message: 'Esta sección es solo para cuentas de cliente.' });
+    return;
+  }
+  next();
 };
