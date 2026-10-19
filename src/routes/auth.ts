@@ -76,7 +76,7 @@ router.post('/login', async (request, response, next) => {
     const user = await userRepository.getByEmail(input.email);
     if (!user || !(await verifyPassword(input.password, user.passwordHash))) return response.status(401).json({ message: 'El correo o la contraseña son incorrectos.' });
     const safeUser = toAuthUser(user);
-    response.json({ message: 'Inicio de sesión correcto.', token: createToken(safeUser), user: safeUser });
+    response.json({ message: 'Inicio de sesión correcto.', token: createToken(safeUser, user.tokenVersion), user: safeUser });
   } catch (error) {
     next(error);
   }
