@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireAdmin, type AuthenticatedRequest } from '../middleware/auth.js';
 import { productRepository } from '../repositories/product.js';
 import { database } from '../database.js';
+import { dateOnlySchema } from '../validation.js';
 
 const router = Router();
 const productSchema = z.object({
@@ -11,7 +12,7 @@ const productSchema = z.object({
   description: z.string().trim().max(500).default(''),
   price: z.coerce.number().positive(),
   stock: z.coerce.number().int().nonnegative(),
-  expirationDate: z.coerce.date(),
+  expirationDate: dateOnlySchema,
   discountPercent: z.coerce.number().min(0).max(100),
   imageUrl: z.string().max(300).optional().default(''),
 });
