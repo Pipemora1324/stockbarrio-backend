@@ -3,36 +3,20 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { config } from '../src/config.js';
 import { addDays, todayInBogota } from '../src/dates.js';
-import type { DiscountSuggestion } from '../src/services/discount-rules.js';
-import { mergeAiSuggestions } from '../src/services/suggestions.js';
+import { isTrustworthyReason } from '../src/services/suggestions.js';
 
-const local: DiscountSuggestion[] = [
-  { productId: 'a', productName: 'Leche', daysToExpire: 1, currentPercent: 0, suggestedPercent: 40, suggestedPrice: 3000, reason: 'Regla local A.' },
-  { productId: 'b', productName: 'Pan', daysToExpire: 3, currentPercent: 10, suggestedPercent: 30, suggestedPrice: 3500, reason: 'Regla local B.' },
-];
+const reasonInput = { productId: 'a', productName: 'Leche', category: 'Lácteos', stock: 30, daysToExpire: 1, currentPercent: 0, suggestedPercent: 55, price: 5000, suggestedPrice: 2250 };
 
-describe('mergeAiSuggestions', () => {
-  it('keeps the local result when there is no answer', () => {
-    const merged = mergeAiSuggestions(local, null);
-    assert.deepEqual(merged.map((item) => [item.productId, item.source, item.priority]), [['a', 'local', 0], ['b', 'local', 1]]);
+describe('isTrustworthyReason', () => {
+  it('accepts a text that only uses the numbers from the rules', () => {
+    assert.equal(isTrustworthyReason('La leche vence mañana: con 55 % queda en $ 2.250 y se vende hoy.', reasonInput), true);
   });
 
-  it('accepts a new order and wording and clamps the percent to the allowed range', () => {
-    const merged = mergeAiSuggestions(local, {
-      suggestions: [
-        { productId: 'b', reason: 'El pan se vence pronto, mejor bajarlo.', suggestedPercent: 90 },
-        { productId: 'a', reason: 'La leche vence mañana, rebájala ya.', suggestedPercent: 10 },
-      ],
-    });
-    assert.deepEqual(merged.map((item) => [item.productId, item.suggestedPercent, item.source]), [['b', 35, 'ai'], ['a', 35, 'ai']]);
-    assert.equal(merged[0].reason, 'El pan se vence pronto, mejor bajarlo.');
-  });
-
-  it('falls back to local rules when the answer invents, drops or repeats products', () => {
-    const invented = mergeAiSuggestions(local, { suggestions: [{ productId: 'a', reason: 'Texto suficiente.' }, { productId: 'zzz', reason: 'Producto inventado.' }] });
-    const repeated = mergeAiSuggestions(local, { suggestions: [{ productId: 'a', reason: 'Texto suficiente.' }, { productId: 'a', reason: 'Texto repetido aquí.' }] });
-    const dropped = mergeAiSuggestions(local, { suggestions: [{ productId: 'a', reason: 'Texto suficiente.' }] });
-    for (const merged of [invented, repeated, dropped]) assert.deepEqual(merged.map((item) => item.source), ['local', 'local']);
+  it('rejects invented percents, prices, links or markup', () => {
+    assert.equal(isTrustworthyReason('Mejor ponle 80 % de descuento.', reasonInput), false);
+    assert.equal(isTrustworthyReason('Véndela a $ 1.000 para salir rápido.', reasonInput), false);
+    assert.equal(isTrustworthyReason('Más información en https://ejemplo.com', reasonInput), false);
+    assert.equal(isTrustworthyReason('<b>Vence mañana</b>', reasonInput), false);
   });
 });
 
@@ -108,27 +92,38 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     assert.equal((await call('GET', '/api/suggestions', undefined, token)).body.data.length, 0);
   });
 
-  it('uses the provider only when its answer is valid and falls back otherwise', async () => {
+  it('lets the provider write each reason once, never the percent', async () => {
     const { token } = await registerStore('sug-seis');
     await createProducts(token);
     config.aiProvider = 'openai';
     config.openAiApiKey = 'clave-de-prueba';
     const realFetch = globalThis.fetch;
+    let providerCalls = 0;
     let answer = '';
     mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
       if (!String(input).startsWith(config.openAiBaseUrl)) return realFetch(input, init);
+      providerCalls++;
+      const sent = JSON.parse(JSON.parse(String(init!.body)).messages[1].content) as { descuentos: Array<{ productId: string; productName: string }> };
+      answer = JSON.stringify({
+        reasons: sent.descuentos.map((item) => ({
+          productId: item.productId,
+          reason: item.productName.startsWith('Leche') ? 'La leche vence mañana y tienes mucha: el 55 % ayuda a venderla hoy.' : 'Sube el descuento al 90 % ya mismo.',
+        })),
+      });
       return new Response(JSON.stringify({ choices: [{ message: { content: answer } }] }));
     });
 
-    answer = JSON.stringify({ suggestions: [{ productId: 'inventado', reason: 'Texto inventado por el modelo.' }] });
-    const fallback = await call('GET', '/api/suggestions', undefined, token);
-    assert.deepEqual(fallback.body.data.map((item: { source: string }) => item.source), ['local', 'local']);
+    const first = await call('GET', '/api/suggestions', undefined, token);
+    const milk = first.body.data.find((item: { productName: string }) => item.productName === 'Leche entera 1 L');
+    const bread = first.body.data.find((item: { productName: string }) => item.productName === 'Pan tajado');
+    assert.deepEqual([milk.source, milk.suggestedPercent, milk.reason], ['ai', 55, 'La leche vence mañana y tienes mucha: el 55 % ayuda a venderla hoy.']);
+    // The bread text invented a 90 %, so the rule text stays.
+    assert.deepEqual([bread.source, bread.suggestedPercent], ['local', 35]);
+    assert.equal(providerCalls, 1);
 
-    const ids = fallback.body.data.map((item: { productId: string }) => item.productId);
-    answer = JSON.stringify({ suggestions: [{ productId: ids[1], reason: 'Primero el pan, que se pone duro.' }, { productId: ids[0], reason: 'Luego la leche de mañana.', suggestedPercent: 99 }] });
-    const improved = await call('GET', '/api/suggestions', undefined, token);
-    assert.deepEqual(improved.body.data.map((item: { productName: string; source: string; suggestedPercent: number }) => [item.productName, item.source, item.suggestedPercent]), [['Pan tajado', 'ai', 35], ['Leche entera 1 L', 'ai', 60]]);
-    assert.equal(improved.body.data[1].suggestedPrice, 2000);
+    await call('GET', '/api/suggestions', undefined, token);
+    await call('GET', '/api/suggestions', undefined, token);
+    assert.equal(providerCalls, 1, 'texts are stored once, not requested on every visit');
   });
 
   it('is only for stores', async () => {
