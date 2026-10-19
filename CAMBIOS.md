@@ -248,3 +248,32 @@ npm run seed && npm run dev
 curl -X POST localhost:3000/api/assistant/chat -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"¿dónde puedo encontrar pollo asado?"}]}'
 curl -X POST localhost:3000/api/auth/forgot-password -H 'content-type: application/json' -d '{"email":"cliente.demo@stockbarrio.test"}'   # el enlace sale en la consola
 ```
+
+## Ajuste de IA para cupos gratuitos (Groq + Gemini)
+
+- **Cadenas de modelos.** `AI_MODELS` define los del principal y `AI_FALLBACK_MODELS` los del respaldo. Sin `AI_MODELS` se usa solo `OPENAI_MODEL`.
+- **Pausa de modelos agotados.** Ante 429 el modelo queda en pausa según `Retry-After`, o hasta el día siguiente si la cuota es diaria; ante 5xx, 30 s. Mientras tanto se usa el siguiente. Si todos fallan, el chat responde con reglas y nunca falla.
+- **Presupuestos en memoria por modelo.**
+  - Principal: 28 peticiones/min, 950/día, 7.000 tokens/min y 150.000/día.
+  - Respaldo: 5/min y 20/día.
+- **Peticiones pequeñas.**
+  - Prompts de menos de 700 tokens (se recorta el historial y se envían máximo 6 resultados).
+  - `max_tokens` 300 y razonamiento bajo (gpt-oss y Gemini en low, Qwen en none y oculto).
+  - El razonamiento interno se descarta y nunca llega al usuario.
+- **Reglas primero.** Búsqueda sin tildes, con raíces y sinónimos. Con coincidencia clara el chat responde con plantilla sin llamar al modelo (`mode: "rules"`). La IA solo entra cuando las reglas no bastan. `/api/assistant/search` aplica lo mismo.
+- **Explicaciones de descuento.** Una llamada por tienda y por día, en lote con todas sus sugerencias, guardada en la base (migración `007`).
+- **Límites de IA por persona.** 5 mensajes/min y 30/día (`AI_CHAT_PER_MINUTE` y `AI_CHAT_PER_DAY`). Al pasarlos, el chat sigue con reglas (`mode: "basic"`). El límite general del endpoint no cambia.
+- **Combos.** Ya no usan IA.
+- **Logs.** No registran claves: solo modelo, pausa y motivo.
+
+### Migraciones
+
+- `007_store_ai_reasons_day.sql` agrega `stores.ai_reasons_on` (fecha). Es aditiva.
+
+### Variables
+
+Las de la sección IA de `.env.example` y del README. Todas tienen valores por defecto, salvo las claves.
+
+### Pruebas
+
+126 en verde, con proveedores simulados (sin claves reales): cadena de modelos, 429 con `Retry-After`, cuota diaria, presupuesto de tokens, razonamiento oculto, claves fuera de los logs, reglas primero, límites por persona, prompts bajo 700 tokens y una llamada por tienda y por día.
