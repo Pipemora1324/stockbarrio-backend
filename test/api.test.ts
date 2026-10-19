@@ -38,6 +38,39 @@ describe('API', { skip: integrationSkip }, () => {
     }
   });
 
+  it('rolls back a failing migration completely and does not record it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'stockbarrio-migrations-'));
+    try {
+      await writeFile(join(directory, '997_good.sql'), 'CREATE TABLE good_table (id SERIAL PRIMARY KEY);');
+      await writeFile(join(directory, '998_broken.sql'), 'CREATE TABLE half_table (id SERIAL PRIMARY KEY); SELECT 1 / 0;');
+      await writeFile(join(directory, '999_after.sql'), 'CREATE TABLE after_table (id SERIAL PRIMARY KEY);');
+      await writeFile(join(directory, 'notas.sql'), 'SELECT 1 / 0;');
+      await writeFile(join(directory, '12_bad_name.sql'), 'SELECT 1 / 0;');
+      const { migrate, listMigrationFiles } = await import('../src/migrate.js');
+      assert.deepEqual(await listMigrationFiles(directory), ['997_good.sql', '998_broken.sql', '999_after.sql'], 'only NNN_name.sql files, in order');
+      await assert.rejects(migrate(directory), /Falló la migración 998_broken\.sql: /);
+      const tables = await context.pool.query<{ name: string }>(`SELECT to_regclass('good_table')::text AS name UNION ALL SELECT to_regclass('half_table')::text UNION ALL SELECT to_regclass('after_table')::text`);
+      assert.deepEqual(tables.rows.map((row) => row.name), ['good_table', null, null], 'earlier migrations stay, the broken one leaves nothing and later ones wait');
+      const recorded = await context.pool.query<{ name: string }>(`SELECT name FROM schema_migrations WHERE name LIKE '99%' ORDER BY name`);
+      assert.deepEqual(recorded.rows.map((row) => row.name), ['997_good.sql']);
+    } finally {
+      await context.pool.query(`DROP TABLE IF EXISTS good_table, half_table, after_table; DELETE FROM schema_migrations WHERE name LIKE '99%';`);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps every existing migration additive: no DROP TABLE, DROP COLUMN or TRUNCATE', async () => {
+    const { listMigrationFiles } = await import('../src/migrate.js');
+    const { readFile } = await import('node:fs/promises');
+    const directory = join(import.meta.dirname, '..', 'src', 'migrations');
+    const files = await listMigrationFiles(directory);
+    assert.ok(files.length >= 7);
+    for (const file of files) {
+      const sql = (await readFile(join(directory, file), 'utf8')).replace(/--.*$/gm, '');
+      assert.doesNotMatch(sql, /\bDROP\s+(TABLE|COLUMN|SCHEMA)\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i, file);
+    }
+  });
+
   it('rejects a public registration without store data instead of creating an admin', async () => {
     const result = await call('POST', '/api/auth/register', { name: 'Colado', email: 'colado@stockbarrio.test', password: '12345678' });
     assert.equal(result.status, 400);
