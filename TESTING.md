@@ -47,30 +47,30 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 | `auth.test.ts` | Integración | Login (mayúsculas, contraseña o correo errados con el mismo mensaje, hash roto), registro sin elegir rol ni repetir correo o tienda, JWT vencido o firmado con otro secreto, `token_version`, cuentas borradas, tokens antiguos sin `tv`, 403 por rol y tienda sin registro |
 | `account.test.ts` | Integración | Recuperación de contraseña (respuesta genérica, hash del token, un solo uso, vencimiento, solo el enlace más nuevo), cambio de contraseña y de correo (confirmación, correo ocupado, cierre de sesiones), tokens de un tipo usados en el otro, límites por IP y por correo, 503 sin SMTP en producción |
 | `api.test.ts` | Integración | Migraciones (no se repiten, RLS en todas las tablas, rollback completo de una migración fallida, todas aditivas), propiedad de productos (403), fechas ISO antiguas, filtros |
-| `stores.test.ts` | Integración | Tiendas por barrio y nombre, 404, ubicación (ambas coordenadas, dentro de Colombia), productos públicos, borrado, edición con fecha pasada y categoría antigua, stock en 0, JSON roto, rutas inexistentes, error 500 sin detalles |
-| `validation.test.ts` | Unitaria e integración | Reglas de nombres, teléfonos, correos, contraseñas, productos, categorías, fechas y coordenadas, con mensajes en español |
+| `stores.test.ts` | Integración | Tiendas por barrio y nombre, 404, la tienda solo como texto (ninguna respuesta trae coordenadas y ya no hay ruta para guardarlas), productos públicos, borrado, edición con fecha pasada y categoría antigua, stock en 0, JSON roto, rutas inexistentes, error 500 sin detalles |
+| `validation.test.ts` | Unitaria e integración | Reglas de nombres, teléfonos, correos, contraseñas, productos, categorías y fechas, con mensajes en español |
 | `discount-rules.test.ts` | Unitaria | Tramos por días (con todos los bordes), bonos de stock en 15 y 30, categorías perecederas, tope, precio en pesos enteros, orden |
 | `suggestions.test.ts` | Unitaria e integración | Sugerencias por urgencia, aprobación y rechazo, otras tiendas fuera, explicaciones de IA una vez al día y sin números inventados |
-| `ai.test.ts` | Unitaria | Recomendador de combos: vencimiento primero, presupuesto, stock, vencidos y agotados, máximo 5 productos y 3 unidades, desempates, sin IA |
-| `recommendations.test.ts` | Integración | API de combos: solo el barrio elegido, selección de productos, presupuesto insuficiente, validaciones |
-| `chat.test.ts` | Unitaria e integración | Reglas primero, intención, presupuestos, datos personales, tamaño del prompt, límites por minuto y por día, anti-alucinación (precios, porcentajes y distancias en cualquier formato), proveedor principal y respaldo, JSON inválido, tiempo de espera, todos caídos, temas ajenos, caché |
+| `chat.test.ts` | Unitaria e integración | Reglas primero, intención, "cerca de mí" (pide el barrio o filtra por el barrio del mensaje o del chat), presupuestos, datos personales, tamaño del prompt, límites por minuto y por día, anti-alucinación (precios y porcentajes en cualquier formato, y ninguna distancia), proveedor principal y respaldo, JSON inválido, tiempo de espera, todos caídos, temas ajenos, caché |
 | `llm.test.ts` | Unitaria | Cadena de modelos, 429 con `Retry-After`, cupo diario, presupuestos de tokens, razonamiento oculto, claves fuera de los logs |
-| `assistant.test.ts`, `search-intent.test.ts` | Unitaria e integración | Búsqueda en español, orden, distancia desde la ubicación o el barrio, la ubicación no se guarda |
-| `offers.test.ts` | Integración | Solo productos con descuento y stock, filtros, orden por distancia o vencimiento, una oferta dura hasta el final de su día |
-| `notifications.test.ts` | Unitaria e integración | Alertas y notificaciones (pausadas con `ENABLE_ALERTS`; la suite las enciende para probarlas) |
-| `geo.test.ts`, `dates.test.ts` | Unitaria | Haversine (ciudades, extremos del país, antípodas), formato de distancias, cambio de día en Bogotá, bisiestos |
+| `assistant.test.ts`, `search-intent.test.ts` | Unitaria e integración | Búsqueda en español, orden, barrio del mensaje o elegido como filtro, "cerca de mí" sin barrio, coordenadas de clientes viejos ignoradas |
+| `offers.test.ts` | Integración | Solo productos con descuento y stock, filtros, orden por vencimiento, ya no hay orden por cercanía ni distancias, una oferta dura hasta el final de su día |
+| `notifications.test.ts` | Unitaria e integración | Alertas y notificaciones por barrio, sin ubicación; las alertas antiguas por radio no avisan (pausadas con `ENABLE_ALERTS`; la suite las enciende para probarlas) |
+| `dates.test.ts` | Unitaria | Cambio de día en Bogotá, bisiestos |
 | `mailer.test.ts` | Unitaria | SMTP (remitente, puerto seguro, una sola conexión), consola en desarrollo, 503 en producción sin SMTP |
 | `product-filters.test.ts` | Unitaria | Filtros SQL con los placeholders correctos |
 
 ## Resultado actual
 
-193 pruebas en 32 suites, todas en verde (unos 40 s con la base de pruebas local, en Node 20 y Node 24).
+174 pruebas, todas en verde (unos 40 s con la base de pruebas local).
 
-| Métrica | Antes de esta ronda | Ahora |
+| Métrica | Ronda de pruebas | Ahora (tras simplificar) |
 | --- | --- | --- |
-| Líneas | 96,0 % | 98,0 % |
-| Ramas | 86,3 % | 89,8 % |
+| Líneas | 98,0 % | 97,8 % |
+| Ramas | 89,8 % | 88,8 % |
 | Funciones | 100 % | 100 % |
+
+La cobertura baja un poco porque se borraron módulos que estaban al 100 % (distancias y combos); lo que queda está igual de probado.
 
 Lo que queda sin cubrir es sobre todo:
 
