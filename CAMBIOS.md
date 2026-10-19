@@ -284,3 +284,31 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
 - **Sin cambios:** los endpoints, las tablas y las migraciones de alertas y notificaciones se quedan como están.
 - **Pruebas:** un test nuevo comprueba que con la bandera apagada no se crea ninguna notificación. Los tests de notificaciones la encienden para seguir probando esa parte.
 - **Reactivar:** `ENABLE_ALERTS=true` en Render (y en Vercel para el frontend).
+
+## Ronda de pruebas (rama `pruebas`)
+
+- **Cobertura:** `npm run test:coverage` (c8). Pasó de 96,0 % a 98,0 % en líneas y de 86,3 % a 89,8 % en ramas. Las pruebas pasaron de 127 a 193.
+- **Protección de la base:** `test/setup.ts` se carga antes de cada archivo de prueba.
+  - Las pruebas se niegan a correr si `TEST_DATABASE_URL` contiene `supabase.co`, y solo usan bases cuyo nombre termine en `_test`.
+  - `DATABASE_URL` nunca se usa en pruebas.
+  - Se vacían las claves de IA y de SMTP, y `fetch` solo puede ir a `localhost`: la IA siempre se prueba con proveedores simulados.
+- **Pruebas nuevas:**
+  - autenticación: login, JWT vencido o falsificado, `token_version`, cuentas borradas y permisos por rol;
+  - recuperación y cambio de contraseña y correo: enlaces de un tipo usados en el otro, solo el enlace más nuevo, correo tomado entre la solicitud y la confirmación, límites por IP y por correo;
+  - API de combos y bordes del recomendador;
+  - tiendas, productos públicos y stock en 0;
+  - errores en español y error 500 sin detalles;
+  - migraciones: una fallida se revierte completa y todas son aditivas;
+  - bordes de las reglas de descuento;
+  - Haversine y fechas de Bogotá;
+  - chat: anti-alucinación, ventanas de los límites, JSON inválido, tiempo de espera;
+  - correo por SMTP;
+  - ofertas que vencen hoy.
+- **Bugs corregidos:**
+  - El anti-alucinación del chat solo revisaba precios con "$" y porcentajes con "%". Una respuesta del modelo con "9.900 pesos", "5 mil", "40 por ciento" o una distancia inventada ("a 200 m") pasaba la validación. Ahora se revisan esos formatos y las distancias, y si algo no coincide con los resultados se responde con la plantilla.
+  - Entre 975 y 999 m las distancias se mostraban como "1000 m". Ahora se muestran como "1,0 km".
+- **Integración continua:** `.github/workflows/ci.yml`. Corre en cada push y pull request con Node 20 y un Postgres 16 de servicio, sin secretos: `npm ci`, lint, build y pruebas con cobertura. La insignia está en el README.
+- **Documentación:** `TESTING.md`.
+- **Migraciones:** ninguna.
+- **Variables nuevas:** ninguna.
+- **Cómo probar:** `TEST_DATABASE_URL=postgresql://stock:stock@localhost:5544/stock_barrios_test npm run test:coverage`. Los detalles están en `TESTING.md`.
