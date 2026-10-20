@@ -47,7 +47,7 @@ describe('migration 010 (products of deleted stores)', { skip: integrationSkip }
       { name: 'Otro huérfano', active: false },
       { name: 'Vigente', active: true },
     ]);
-    // Running the same SQL again changes nothing.
+    // Correr el mismo SQL otra vez no cambia nada.
     const again = await pool.query(await readFile(join(migrationsDirectory, file), 'utf8'));
     assert.equal(again.rowCount, 0);
   });

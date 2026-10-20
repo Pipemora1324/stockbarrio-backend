@@ -129,7 +129,7 @@ describe('validation in the API', { skip: integrationSkip }, () => {
     assert.equal(invalid.status, 400);
     const fields = (invalid.body.errors as Array<{ field: string }>).map((item) => item.field).sort();
     assert.deepEqual(fields, ['category', 'discountPercent', 'expirationDate', 'name', 'price', 'stock']);
-    // Editing an old product keeps working even if its category is not in the list.
+    // Editar un producto viejo sigue funcionando aunque su categoría no esté en la lista.
     const id = valid.body.data.id as string;
     assert.equal((await call('PUT', `/api/products/${id}`, { category: 'Juguetes' }, token)).status, 400);
     assert.equal((await call('PUT', `/api/products/${id}`, { stock: 3 }, token)).status, 200);

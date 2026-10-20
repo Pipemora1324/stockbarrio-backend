@@ -13,7 +13,7 @@ describe('account API', { skip: integrationSkip }, () => {
 
   let visitor = 0;
   beforeEach(() => {
-    // Every test is a different visitor, so the per-IP limits of one test do not affect the next.
+    // Cada prueba es un visitante distinto, así los límites por IP de una prueba no afectan a la siguiente.
     context.clientIp = `10.0.0.${++visitor}`;
     outbox = [];
     useMailTransport(async (message) => {
@@ -202,7 +202,7 @@ describe('account API', { skip: integrationSkip }, () => {
     assert.equal(perIp.status, 429);
     assert.match(perIp.body.message, /demasiadas solicitudes/);
 
-    // From many addresses, a single inbox still gets at most three requests per hour.
+    // Desde muchas direcciones, un mismo buzón recibe como máximo tres solicitudes por hora.
     const statuses = [];
     for (let attempt = 1; attempt <= 4; attempt++) {
       context.clientIp = `10.1.0.${attempt}`;

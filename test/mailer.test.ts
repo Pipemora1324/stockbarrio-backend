@@ -10,7 +10,7 @@ import { canSendMail, describeMailError, mailErrorHint, resetSmtpTransport, send
 const message = { to: 'ana@correo.co', subject: 'Prueba', text: 'Hola' };
 const smtpError = (code: string, responseCode?: number, text = 'fallo') => Object.assign(new Error(text), { code, responseCode, command: 'AUTH PLAIN' });
 
-// Each test gets a fresh nodemailer transporter, because the module keeps one per process.
+// Cada prueba recibe un transporte nuevo de nodemailer, porque el módulo guarda uno por proceso.
 let reset = 0;
 const freshMailer = async () => import(`../src/services/mailer.js?fresh=${++reset}`) as Promise<typeof import('../src/services/mailer.js')>;
 

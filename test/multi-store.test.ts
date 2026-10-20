@@ -29,7 +29,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     const mine = await call('GET', '/api/stores/mine', undefined, owner.token);
     assert.deepEqual(names(mine.body), ['Local Uno', 'Local Dos']);
     assert.equal(mine.body.max, maxStoresPerUser);
-    // The old store id in the account stays the main one.
+    // El local que ya tenía la cuenta sigue siendo el principal.
     assert.equal(mine.body.data[0].id, owner.user.storeId);
   });
 
@@ -118,7 +118,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     const base = { category: 'Lácteos', price: 8000, stock: 9, expirationDate: addDays(today, 2), storeId: second };
     const offer = (await call('POST', '/api/products', { ...base, name: 'Kumis que se va', discountPercent: 30 }, seller.token)).body.data;
     const plain = (await call('POST', '/api/products', { ...base, name: 'Queso que se va' }, seller.token)).body.data;
-    // Visible before deleting the store.
+    // Se ve antes de eliminar el local.
     assert.ok((await call('POST', '/api/offers/search', {})).body.data.some((item: { name: string }) => item.name === 'Kumis que se va'));
 
     assert.equal((await call('DELETE', `/api/stores/${second}`, undefined, seller.token)).status, 200);
@@ -136,7 +136,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.ok(gone(names(chat.body.data.results)), 'chat');
     const home = (await call('GET', '/api/stores')).body.data as Array<{ id: string }>;
     assert.ok(!home.some((store) => store.id === second), 'inicio');
-    // Nor can its owner edit them, and they never come back as suggestions.
+    // Su dueño tampoco puede editarlos, y nunca vuelven como sugerencias.
     assert.equal((await call('PUT', `/api/products/${offer.id}`, { stock: 1 }, seller.token)).status, 404);
     assert.equal((await call('DELETE', `/api/products/${plain.id}`, undefined, seller.token)).status, 404);
     const suggestions = await call('GET', '/api/suggestions', undefined, seller.token);
@@ -161,7 +161,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.equal(again.status, 201);
     const main = await context.pool.query('SELECT store_id AS "storeId" FROM users WHERE id = $1', [seller.user.id]);
     assert.equal(main.rows[0].storeId, again.body.data.id, 'the first store after having none becomes the main one');
-    // A deleted store's name can be used again.
+    // El nombre de un local eliminado se puede volver a usar.
     assert.equal((await call('POST', '/api/stores', { name: 'Primer Local', neighborhood: 'Bosa', address: 'Calle 1 # 2-3' }, seller.token)).status, 201);
   });
 
@@ -185,7 +185,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.deepEqual(north.body.data.map((item: { productName: string }) => item.productName), ['Leche norte']);
     const southSuggestions = await call('GET', `/api/suggestions?storeId=${south}`, undefined, seller.token);
     assert.deepEqual(southSuggestions.body.data.map((item: { productName: string }) => item.productName), ['Leche sur']);
-    // Approving needs the store of the suggestion.
+    // Para aprobar hace falta el local de la sugerencia.
     assert.equal((await call('POST', `/api/suggestions/${southSuggestions.body.data[0].id}/approve`, {}, seller.token)).status, 404);
     assert.equal((await call('POST', `/api/suggestions/${southSuggestions.body.data[0].id}/approve?storeId=${south}`, {}, seller.token)).status, 200);
   });

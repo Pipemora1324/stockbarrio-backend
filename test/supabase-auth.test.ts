@@ -12,7 +12,7 @@ const jwksUrl = `${projectUrl}/auth/v1/.well-known/jwks.json`;
 const issuer = `${projectUrl}/auth/v1`;
 const sharedSecret = 'secreto-hs256-de-prueba-con-mas-de-32-caracteres';
 
-// Test keys made on the fly: the ES256 one is published in a simulated JWKS, the other one is an impostor.
+// Claves de prueba creadas al vuelo: la ES256 se publica en un JWKS simulado y la otra es la impostora.
 const signing = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const impostor = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const publicJwk = { ...signing.publicKey.export({ format: 'jwk' }), kid: 'clave-1', alg: 'ES256', use: 'sig' };
@@ -37,7 +37,7 @@ const tokenFor = ({ sub = randomUUID(), email = 'ana@correo.co', verified = true
   return jwt.sign(payload, (key === 'es256' ? signing : impostor).privateKey, { ...options, algorithm: 'ES256', keyid: kid });
 };
 
-// The JWKS endpoint answers from memory; every other request (the API under test) goes through.
+// El endpoint JWKS responde desde memoria; todas las demás peticiones (la API que se prueba) pasan.
 const simulateJwks = (answer: () => Response = () => new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 })) => {
   const calls: string[] = [];
   const realFetch = globalThis.fetch;

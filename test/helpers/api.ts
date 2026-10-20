@@ -4,8 +4,8 @@ import type { AddressInfo } from 'node:net';
 import { after, before } from 'node:test';
 import { isUsableTestDatabaseUrl } from './database-guard.js';
 
-// Integration tests need a disposable database whose name ends in "_test": it is wiped before each file.
-// Import this helper first in every test file so the pool is created with the test database.
+// Las pruebas de integración necesitan una base desechable cuyo nombre termine en "_test": se vacía antes de cada archivo.
+// Importa esta ayuda primero en cada archivo de pruebas, para que el pool se cree con la base de pruebas.
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 const usableTestUrl = isUsableTestDatabaseUrl(testDatabaseUrl);
 if (usableTestUrl) process.env.DATABASE_URL = testDatabaseUrl;
@@ -13,7 +13,7 @@ export const integrationSkip = usableTestUrl ? false : 'TEST_DATABASE_URL no est
 
 export interface TestContext {
   pool: typeof import('../../src/database.js').pool;
-  // Visitor IP sent through the trusted proxy header, so each test can have its own rate limits.
+  // IP del visitante enviada por la cabecera del proxy de confianza, para que cada prueba tenga sus propios límites.
   clientIp?: string;
   baseUrl: string;
   call: (method: string, path: string, body?: unknown, token?: string) => Promise<{ status: number; body: Record<string, any> }>;

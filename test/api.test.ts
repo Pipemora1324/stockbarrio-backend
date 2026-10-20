@@ -65,8 +65,8 @@ describe('API', { skip: integrationSkip }, () => {
     const directory = join(import.meta.dirname, '..', 'src', 'migrations');
     const files = await listMigrationFiles(directory);
     assert.ok(files.length >= 9);
-    // 004 replaces the role CHECK with a wider one; 009 removes the UNIQUE of stores.user_id (several stores per seller).
-    // Both only drop a constraint, never data, and the 009 one is explained in CAMBIOS.md.
+    // La 004 reemplaza el CHECK de roles por uno más amplio; la 009 quita el UNIQUE de stores.user_id (varios locales por vendedor).
+    // Las dos solo quitan una restricción, nunca datos, y la de la 009 está explicada en CAMBIOS.md.
     const allowedDrops: Record<string, string[]> = {
       '004_customer_role.sql': ['DROP CONSTRAINT %I'],
       '009_multi_store_offer_dates.sql': ['DROP CONSTRAINT %I'],

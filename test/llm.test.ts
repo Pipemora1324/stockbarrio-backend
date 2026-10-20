@@ -19,7 +19,7 @@ const groqAndGemini = () =>
     aiFallbackModels: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
   });
 
-// Records which model each request asked for and lets each test decide the answer per model.
+// Registra qué modelo pidió cada petición y deja que cada prueba decida la respuesta por modelo.
 const simulate = (answer: (model: string, body: Record<string, any>) => Response) => {
   const calls: Array<{ url: string; model: string; body: Record<string, any> }> = [];
   mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
@@ -95,7 +95,7 @@ describe('model chain', () => {
     Object.assign(config, { aiTokensPerDay: 1000, aiModels: ['openai/gpt-oss-120b'], aiFallbackModels: [] });
     const calls = simulate(() => ok('{"answer":"hola"}', 900));
     assert.deepEqual(await requestJson('x', {}, schema), { answer: 'hola' });
-    // 900 real tokens used: another ~310 token request no longer fits in the 1.000 daily budget.
+    // 900 tokens reales usados: otra petición de unos 310 tokens ya no cabe en el presupuesto diario de 1.000.
     assert.equal(await requestJson('x', {}, schema), null);
     assert.equal(calls.length, 1);
     assert.equal(hasBudget(modelChain()[0], 50), true);

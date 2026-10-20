@@ -48,7 +48,7 @@ describe('offers with a date range, catalog and expiration', { skip: integration
     const offer = await call('PUT', `/api/products/${created.body.data.id}`, { discountPercent: 30 }, seller.token);
     assert.equal(offer.status, 400);
     assert.equal(offer.body.message, 'Un producto vencido no puede tener oferta. Quita el descuento o corrige la fecha de vencimiento.');
-    // Fixing the stock of that product still works.
+    // Corregir el stock de ese producto sigue funcionando.
     assert.equal((await call('PUT', `/api/products/${created.body.data.id}`, { stock: 2 }, seller.token)).status, 200);
     assert.equal((await call('GET', '/api/products/mine', undefined, seller.token)).body.data.find((item: { name: string }) => item.name === 'Kumis viejo').expired, true);
   });
@@ -56,7 +56,7 @@ describe('offers with a date range, catalog and expiration', { skip: integration
   it('gives older clients that only send the percent the default range', async () => {
     const created = await create({ name: 'Cliente viejo', discountPercent: 15 });
     assert.deepEqual([created.body.data.offerStartsOn, created.body.data.offerEndsOn], [today, base.expirationDate]);
-    // Editing other fields keeps the range, and removing the discount clears it.
+    // Editar otros campos conserva el rango, y quitar el descuento lo borra.
     const edited = await call('PUT', `/api/products/${created.body.data.id}`, { ...base, name: 'Cliente viejo', discountPercent: 15, stock: 3 }, seller.token);
     assert.deepEqual([edited.body.data.offerStartsOn, edited.body.data.offerEndsOn], [today, base.expirationDate]);
     const cleared = await call('PUT', `/api/products/${created.body.data.id}`, { discountPercent: 0 }, seller.token);
@@ -67,10 +67,10 @@ describe('offers with a date range, catalog and expiration', { skip: integration
     const created = await create({ name: 'Yogur programado', discountPercent: 25, offerStartsOn: addDays(today, 2), offerEndsOn: addDays(today, 4) });
     assert.equal(created.body.data.offerStatus, 'scheduled');
     assert.ok(!(await offerNames()).includes('Yogur programado'));
-    // Until it starts the product is in the catalog with its normal price.
+    // Hasta que empieza, el producto está en el catálogo con su precio normal.
     const catalog = (await catalogProducts()).find((item) => item.name === 'Yogur programado')!;
     assert.deepEqual([catalog.discountPercent, catalog.offerPrice, catalog.offerEndsOn], [0, 10000, null]);
-    // The day it starts (moved here by changing the dates) it is an offer, and the catalog shows its discounted price, with no job involved.
+    // El día que empieza (simulado cambiando las fechas) es oferta y el catálogo muestra su precio con descuento, sin ninguna tarea programada.
     await setRange(created.body.data.id, today, addDays(today, 2));
     assert.ok((await offerNames()).includes('Yogur programado'));
     const started = (await catalogProducts()).find((item) => item.name === 'Yogur programado')!;
