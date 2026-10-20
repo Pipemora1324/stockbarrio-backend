@@ -256,9 +256,9 @@ Salvaguardas:
 - **Cierre de sesiones.** Restablecer o cambiar la contraseña, o confirmar un correo nuevo, sube `users.token_version` y cierra las sesiones anteriores. Al cambiar la contraseña llega además el correo "Tu contraseña de StockBarrio fue cambiada".
 - **Correos.** Van en español, en texto plano y HTML. Se envían por SMTP (nodemailer) o por la API HTTPS de Brevo, según `MAIL_PROVIDER`, con 10 segundos de límite. Si el envío falla, el registro solo dice el tipo de error (por ejemplo `EAUTH · SMTP 535` o `Brevo 401`), sin el correo de la persona, el enlace, el token ni la contraseña o la API key.
 - **Sin transporte configurado** (SMTP sin `SMTP_HOST`, o Brevo sin `BREVO_API_KEY` o sin `MAIL_FROM`):
-  - en desarrollo el correo, con su enlace, se imprime en la consola;
-  - en producción nunca se imprimen enlaces y la API responde 503 ("El envío de correos no está configurado todavía").
-  - Lo mismo pasa en producción si falta `APP_URL`, para no mandar enlaces a `localhost`. Al arrancar, la API avisa en el registro si falta alguna de las dos.
+  - con SMTP sin `SMTP_HOST`, en desarrollo el correo se imprime con su enlace en la consola;
+  - en producción, o con Brevo incompleto, nunca se imprimen enlaces y la API responde 503 ("El envío de correos no está configurado todavía").
+  - Lo mismo pasa en producción si falta `APP_URL`, para no mandar enlaces a `localhost`. Al arrancar, la API avisa en el registro de cualquier configuración que falte.
 
 ### Configurar el correo
 
