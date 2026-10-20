@@ -105,8 +105,6 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.equal(removed.body.message, 'Se eliminó el local «Local Dos Express».');
     assert.deepEqual(names((await call('GET', '/api/stores/mine', undefined, owner.token)).body), ['Local Uno']);
     assert.ok(!names((await call('GET', '/api/stores')).body).includes('Local Dos Express'));
-    assert.equal((await call('GET', `/api/stores/${secondId}`)).status, 404);
-    assert.deepEqual((await call('GET', `/api/products/store/${secondId}`)).body.data, []);
     assert.equal((await call('GET', `/api/products/mine?storeId=${secondId}`, undefined, owner.token)).status, 403);
     const rows = await context.pool.query('SELECT active FROM stores WHERE id = $1', [secondId]);
     assert.deepEqual(rows.rows, [{ active: false }]);
@@ -132,14 +130,12 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     const names = (items: Array<{ name: string }>) => items.map((item) => item.name);
     const gone = (list: string[]) => !list.some((name) => name.endsWith('que se va'));
     assert.ok(gone(names((await call('POST', '/api/offers/search', {})).body.data)), 'ofertas');
-    assert.ok(gone(names((await call('GET', '/api/products')).body.data)), 'catálogo plano');
     const catalog = (await call('GET', '/api/products/catalog')).body.data as Array<{ products: Array<{ name: string }> }>;
     assert.ok(gone(catalog.flatMap((group) => names(group.products))), 'catálogo agrupado');
     const chat = await call('POST', '/api/assistant/chat', { messages: [{ role: 'user', content: 'kumis' }] });
     assert.ok(gone(names(chat.body.data.results)), 'chat');
     const home = (await call('GET', '/api/stores')).body.data as Array<{ id: string }>;
     assert.ok(!home.some((store) => store.id === second), 'inicio');
-    assert.equal((await call('GET', `/api/products/store/${second}`)).body.data.length, 0);
     // Nor can its owner edit them, and they never come back as suggestions.
     assert.equal((await call('PUT', `/api/products/${offer.id}`, { stock: 1 }, seller.token)).status, 404);
     assert.equal((await call('DELETE', `/api/products/${plain.id}`, undefined, seller.token)).status, 404);
@@ -153,7 +149,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     await call('DELETE', `/api/stores/${seller.user.storeId}`, undefined, seller.token);
     const account = await context.pool.query('SELECT store_id AS "storeId" FROM users WHERE id = $1', [seller.user.id]);
     assert.equal(account.rows[0].storeId, extra.body.data.id);
-    assert.equal((await call('GET', '/api/stores/me', undefined, seller.token)).body.data.name, 'Segundo Local');
+    assert.equal((await call('GET', '/api/stores/mine', undefined, seller.token)).body.data[0].name, 'Segundo Local');
 
     await call('DELETE', `/api/stores/${extra.body.data.id}`, undefined, seller.token);
     assert.deepEqual((await call('GET', '/api/stores/mine', undefined, seller.token)).body.data, []);

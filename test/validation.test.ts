@@ -113,8 +113,8 @@ describe('validation in the API', { skip: integrationSkip }, () => {
 
   it('stores the normalized email and phone', async () => {
     const { token } = await registerStore('normaliza', { email: 'Tienda.Normaliza@Stockbarrio.Test', phone: '+57 310 555 1234' });
-    const store = await call('GET', '/api/stores/me', undefined, token);
-    assert.equal(store.body.data.phone, '3105551234');
+    const store = await call('GET', '/api/stores/mine', undefined, token);
+    assert.equal(store.body.data[0].phone, '3105551234');
     const login = await call('POST', '/api/auth/login', { email: 'TIENDA.NORMALIZA@stockbarrio.test', password: 'tienda12345' });
     assert.equal(login.status, 200);
   });

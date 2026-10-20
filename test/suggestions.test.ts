@@ -136,7 +136,7 @@ describe('suggestions API', { skip: integrationSkip }, () => {
 
     // The next day the store gets one new batch with all its suggestions.
     const { refreshSuggestions } = await import('../src/services/suggestions.js');
-    const storeId = (await call('GET', '/api/stores/me', undefined, token)).body.data.id as string;
+    const storeId = (await call('GET', '/api/stores/mine', undefined, token)).body.data[0].id as string;
     await refreshSuggestions(storeId, addDays(today, 1));
     assert.equal(providerCalls, 2);
   });

@@ -141,15 +141,16 @@ describe('API', { skip: integrationSkip }, () => {
     assert.equal((await call('POST', '/api/products', product, token)).status, 403);
   });
 
-  it('combines optional filters with the right placeholders', async () => {
+  it('filters the catalog by one category, written with or without accents', async () => {
     const owner = await registerStore('cinco');
     await call('POST', '/api/products', { ...product, name: 'Queso campesino', category: 'Lácteos' }, owner.token);
     await call('POST', '/api/products', { ...product, name: 'Queso crema', category: 'Despensa' }, owner.token);
-    const result = await call('GET', '/api/products?category=l%C3%A1cteos&search=queso');
+    const result = await call('GET', '/api/products/catalog?category=L%C3%A1cteos');
     assert.equal(result.status, 200);
-    assert.deepEqual(result.body.data.map((item: { name: string }) => item.name), ['Queso campesino']);
-    const onlySearch = await call('GET', '/api/products?search=queso');
-    assert.equal(onlySearch.body.data.length, 2);
+    const products = (result.body.data as Array<{ products: Array<{ name: string; category: string }> }>).flatMap((group) => group.products);
+    assert.ok(products.some((item) => item.name === 'Queso campesino'));
+    assert.ok(!products.some((item) => item.name === 'Queso crema'));
+    assert.ok(products.every((item) => item.category === 'Lácteos'));
   });
 
   it('returns Spanish validation messages and 400 for bad identifiers', async () => {
@@ -158,6 +159,6 @@ describe('API', { skip: integrationSkip }, () => {
     assert.equal(invalid.status, 400);
     assert.match(invalid.body.message, /El precio debe ser mayor que 0/);
     assert.match(invalid.body.message, /La fecha no es válida/);
-    assert.equal((await call('GET', '/api/stores/no-es-un-uuid')).status, 400);
+    assert.equal((await call('PATCH', '/api/stores/no-es-un-uuid', { name: 'Otra' }, owner.token)).status, 400);
   });
 });

@@ -16,6 +16,7 @@ describe('offers with a date range, catalog and expiration', { skip: integration
 
   const create = (body: Record<string, unknown>, token = seller.token) => call('POST', '/api/products', { ...base, ...body }, token);
   const offerNames = async (body: Record<string, unknown> = {}) => (await call('POST', '/api/offers/search', body)).body.data.map((item: { name: string }) => item.name);
+  const catalogProducts = async () => ((await call('GET', '/api/products/catalog')).body.data as Array<{ products: Array<Record<string, any>> }>).flatMap((group) => group.products);
   const setRange = (id: string, startsOn: string, endsOn: string) => context.pool.query('UPDATE products SET offer_starts_on = $2, offer_ends_on = $3 WHERE id = $1', [id, startsOn, endsOn]);
 
   it('saves an offer from today until the expiration day', async () => {
@@ -67,12 +68,12 @@ describe('offers with a date range, catalog and expiration', { skip: integration
     assert.equal(created.body.data.offerStatus, 'scheduled');
     assert.ok(!(await offerNames()).includes('Yogur programado'));
     // Until it starts the product is in the catalog with its normal price.
-    const catalog = (await call('GET', '/api/products')).body.data.find((item: { name: string }) => item.name === 'Yogur programado');
+    const catalog = (await catalogProducts()).find((item) => item.name === 'Yogur programado')!;
     assert.deepEqual([catalog.discountPercent, catalog.offerPrice, catalog.offerEndsOn], [0, 10000, null]);
     // The day it starts (moved here by changing the dates) it is an offer, and the catalog shows its discounted price, with no job involved.
     await setRange(created.body.data.id, today, addDays(today, 2));
     assert.ok((await offerNames()).includes('Yogur programado'));
-    const started = (await call('GET', '/api/products')).body.data.find((item: { name: string }) => item.name === 'Yogur programado');
+    const started = (await catalogProducts()).find((item) => item.name === 'Yogur programado')!;
     assert.deepEqual([started.discountPercent, started.offerPrice, started.price, started.offerEndsOn], [25, 7500, 10000, addDays(today, 2)]);
   });
 
@@ -81,7 +82,7 @@ describe('offers with a date range, catalog and expiration', { skip: integration
     assert.ok((await offerNames()).includes('Queso que termina'));
     await setRange(created.body.data.id, addDays(today, -3), addDays(today, -1));
     assert.ok(!(await offerNames()).includes('Queso que termina'));
-    const back = (await call('GET', '/api/products')).body.data.find((item: { name: string }) => item.name === 'Queso que termina');
+    const back = (await catalogProducts()).find((item) => item.name === 'Queso que termina')!;
     assert.deepEqual([back.discountPercent, back.offerPrice], [0, 10000], 'the normal price again, without the old discount');
     const mine = (await call('GET', '/api/products/mine', undefined, seller.token)).body.data.find((item: { name: string }) => item.name === 'Queso que termina');
     assert.deepEqual([mine.discountPercent, mine.offerStatus], [40, 'ended'], 'the panel still shows the saved discount, marked as ended');

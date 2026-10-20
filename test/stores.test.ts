@@ -24,40 +24,38 @@ describe('stores, public products and errors API', { skip: integrationSkip }, ()
     assert.deepEqual(byNeighborhood.body.data.map((store: { name: string }) => store.name), ['Tienda Doña Luz']);
     const bySearch = await call('GET', '/api/stores?search=FRUVER');
     assert.deepEqual(bySearch.body.data.map((store: { name: string }) => store.name), ['Fruver El Sur']);
-    const neighborhoods = await call('GET', '/api/stores/neighborhoods');
-    assert.deepEqual(neighborhoods.body.data, ['Chapinero Alto', 'Kennedy']);
   });
 
-  it('shows one store by id and answers 404 for one that does not exist', async () => {
-    const found = await call('GET', `/api/stores/${norte.user.storeId}`);
-    assert.equal(found.status, 200);
-    assert.equal(found.body.data.name, 'Tienda Doña Luz');
-    const missing = await call('GET', '/api/stores/00000000-0000-4000-8000-000000000000');
-    assert.equal(missing.status, 404);
-    assert.equal(missing.body.message, 'La tienda no existe.');
+  it('no longer has the routes the app stopped using', async () => {
+    for (const path of ['/api/stores/neighborhoods', `/api/stores/${norte.user.storeId}`, `/api/products/store/${norte.user.storeId}`]) {
+      const response = await call('GET', path);
+      assert.equal(response.status, 404, path);
+    }
+    assert.equal((await call('GET', '/api/stores/me', undefined, norte.token)).status, 404);
+    assert.equal((await call('POST', '/api/assistant/search', { message: 'leche' })).status, 404);
   });
 
   it('shows the store as text only: no coordinates and no location route', async () => {
     await context.pool.query('UPDATE stores SET latitude = 4.6486, longitude = -74.0628 WHERE id = $1', [norte.user.storeId]);
-    const responses = [await call('GET', '/api/stores'), await call('GET', `/api/stores/${norte.user.storeId}`), await call('GET', '/api/stores/me', undefined, norte.token), await call('GET', '/api/products/mine', undefined, norte.token)];
+    const responses = [await call('GET', '/api/stores'), await call('GET', '/api/stores/mine', undefined, norte.token), await call('GET', '/api/products/mine', undefined, norte.token)];
     for (const response of responses) {
       assert.equal(response.status, 200);
       assert.doesNotMatch(JSON.stringify(response.body), /latitude|longitude|4\.6486/);
     }
-    assert.deepEqual(Object.keys(responses[2].body.data).sort(), ['active', 'address', 'createdAt', 'id', 'name', 'neighborhood', 'phone', 'productCount', 'userId']);
+    assert.deepEqual(Object.keys(responses[1].body.data[0]).sort(), ['active', 'address', 'createdAt', 'id', 'name', 'neighborhood', 'phone', 'productCount', 'userId']);
     const update = await call('PUT', '/api/stores/me', { latitude: 4.65, longitude: -74.06 }, norte.token);
     assert.equal(update.status, 404);
   });
 
-  it('lists the active products of one store, without the deleted ones', async () => {
+  it('shows the active products of a store in the catalog, without the deleted ones', async () => {
     const kept = await call('POST', '/api/products', product, norte.token);
     const removed = await call('POST', '/api/products', { ...product, name: 'Yogur natural' }, norte.token);
     await call('POST', '/api/products', { ...product, name: 'Mango tommy', category: 'Frutas y verduras' }, sur.token);
     await call('DELETE', `/api/products/${removed.body.data.id}`, undefined, norte.token);
 
-    const listed = await call('GET', `/api/products/store/${norte.user.storeId}`);
-    assert.deepEqual(listed.body.data.map((item: { id: string }) => item.id), [kept.body.data.id]);
-    assert.equal((await call('GET', '/api/products/store/no-es-un-id')).status, 400);
+    const catalog = (await call('GET', '/api/products/catalog')).body.data as Array<{ store: { id: string }; products: Array<{ id: string }> }>;
+    const norteGroup = catalog.find((group) => group.store.id === norte.user.storeId)!;
+    assert.deepEqual(norteGroup.products.map((item) => item.id), [kept.body.data.id]);
     const mine = await call('GET', '/api/products/mine', undefined, norte.token);
     assert.ok(!mine.body.data.some((item: { id: string }) => item.id === removed.body.data.id), 'a deleted product is gone for its store too');
   });

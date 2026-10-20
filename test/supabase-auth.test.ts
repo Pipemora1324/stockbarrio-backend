@@ -154,8 +154,8 @@ describe('API with AUTH_PROVIDER=supabase', { skip: integrationSkip }, () => {
     const token = tokenFor({ email: 'tienda.supa@stockbarrio.test', metadata: storeMetadata });
     const me = await call('GET', '/api/auth/me', undefined, token);
     assert.equal(me.body.user.role, 'store');
-    const store = await call('GET', '/api/stores/me', undefined, token);
-    assert.deepEqual([store.body.data.name, store.body.data.neighborhood, store.body.data.phone], ['Tienda Supa', 'Chapinero', '3101234567']);
+    const [store] = (await call('GET', '/api/stores/mine', undefined, token)).body.data;
+    assert.deepEqual([store.name, store.neighborhood, store.phone], ['Tienda Supa', 'Chapinero', '3101234567']);
     assert.equal((await call('POST', '/api/products', product, token)).status, 201);
     const repeated = await call('GET', '/api/auth/me', undefined, tokenFor({ email: 'otra.tienda@stockbarrio.test', metadata: { ...storeMetadata, storeName: 'tienda supa' } }));
     assert.equal(repeated.status, 409);
