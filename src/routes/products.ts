@@ -37,13 +37,7 @@ const updateSchema = z.object({
   imageUrl: z.string().trim().max(300).optional(),
 });
 const idSchema = z.object({ id: z.string().uuid() });
-const storeIdSchema = z.object({ storeId: z.string().uuid() });
-// Customers filter the catalog by category only; neighborhood and search stay for older clients.
-const catalogQuerySchema = z.object({
-  category: z.string().trim().min(2).max(80).optional(),
-  neighborhood: z.string().trim().max(80).optional(),
-  search: z.string().trim().max(80).optional(),
-});
+const catalogQuerySchema = z.object({ category: z.string().trim().min(2).max(80).optional() });
 
 // For the owner: the saved values plus the state of the offer today and whether the product already expired.
 const withOfferState = (product: ProductRecord, today: string) => ({ ...product, offerStatus: offerStatus(product, today), expired: product.expirationDate < today });
@@ -56,15 +50,6 @@ const getOwnedProduct = async (request: AuthenticatedRequest) => {
   if (!request.stores!.some((store) => store.id === product.storeId)) throw forbidden('Este producto no pertenece a tu tienda.');
   return product;
 };
-
-// Flat list of the catalog (older clients). Products with an active offer come with their discounted price.
-router.get('/', async (request, response, next) => {
-  try {
-    response.json({ data: await productRepository.list(catalogQuerySchema.parse(request.query), todayInBogota()) });
-  } catch (error) {
-    next(error);
-  }
-});
 
 // Catalog grouped by store, with a single category filter.
 router.get('/catalog', async (request, response, next) => {
@@ -87,15 +72,6 @@ router.get('/mine', authenticate, requireStore, async (request: AuthenticatedReq
     const today = todayInBogota();
     const products = await productRepository.listByStore(request.store!.id);
     response.json({ data: products.map((product) => withOfferState(product, today)), store: request.store, stores: request.stores, today });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/store/:storeId', async (request, response, next) => {
-  try {
-    const { storeId } = storeIdSchema.parse(request.params);
-    response.json({ data: await productRepository.listPublicByStore(storeId, todayInBogota()) });
   } catch (error) {
     next(error);
   }

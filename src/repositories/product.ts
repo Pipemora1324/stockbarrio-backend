@@ -21,9 +21,7 @@ export interface ProductRecord {
 }
 
 export interface ProductFilters {
-  neighborhood?: string;
   category?: string;
-  search?: string;
 }
 
 // Saved values, for the store that owns the product.
@@ -58,12 +56,7 @@ const parameters = (initial: unknown[] = []) => {
 export const buildProductFilters = (filters: ProductFilters, today: string) => {
   const { params, add } = parameters([today]);
   const conditions = ['p.active = true', 's.active = true', 'p.expiration_date >= $1::date'];
-  if (filters.neighborhood) conditions.push(`s.neighborhood ILIKE ${add(`%${filters.neighborhood}%`)}`);
   if (filters.category) conditions.push(`lower(p.category) = lower(${add(filters.category)})`);
-  if (filters.search) {
-    const placeholder = add(`%${filters.search}%`);
-    conditions.push(`(p.name ILIKE ${placeholder} OR p.description ILIKE ${placeholder})`);
-  }
   return { where: conditions.join(' AND '), params };
 };
 
@@ -135,15 +128,6 @@ export const productRepository = {
         `SELECT ${productColumns} FROM products p JOIN stores s ON s.id = p.store_id
          WHERE p.store_id = $1 AND p.active = true AND s.active = true ORDER BY p.expiration_date ASC, lower(p.name)`,
         [storeId],
-      )
-    ).rows,
-  // Public products of one store, as customers see them today.
-  listPublicByStore: async (storeId: string, today: string) =>
-    (
-      await database.query<ProductRecord>(
-        `SELECT ${publicColumns('$2')} FROM products p JOIN stores s ON s.id = p.store_id
-         WHERE p.store_id = $1 AND p.active = true AND s.active = true AND p.expiration_date >= $2::date ORDER BY p.expiration_date ASC, lower(p.name)`,
-        [storeId, today],
       )
     ).rows,
   // A product of a deleted store no longer exists for anybody, its owner included.

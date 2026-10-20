@@ -54,7 +54,6 @@ export const storeRepository = {
     );
     return result.rows;
   },
-  getById: async (id: string) => (await database.query<StoreRecord>(`SELECT ${storeColumns} FROM stores s WHERE s.id = $1 AND s.active = true`, [id])).rows[0],
   // Includes the owner, for the ownership checks.
   getOwned: async (id: string) =>
     (await database.query<StoreRecord & { userId: string }>(`SELECT ${storeColumns}, s.user_id AS "userId" FROM stores s WHERE s.id = $1 AND s.active = true`, [id])).rows[0],
@@ -64,8 +63,6 @@ export const storeRepository = {
   claimAiReasonsDay: async (id: string, day: string) =>
     Boolean((await database.query(`UPDATE stores SET ai_reasons_on = $2 WHERE id = $1 AND ai_reasons_on IS DISTINCT FROM $2::date RETURNING id`, [id, day])).rowCount),
   listByUser: async (userId: string) => (await database.query<OwnedStoreRecord>(ownedStoresQuery, [userId])).rows,
-  // The main store of a seller (what older clients and endpoints without storeId use).
-  getByUserId: async (userId: string) => (await database.query<OwnedStoreRecord>(ownedStoresQuery, [userId])).rows[0],
   // Another active store with the same name in the same neighborhood (letter case ignored).
   isNameTaken: async (name: string, neighborhood: string, exceptId?: string) =>
     Boolean(

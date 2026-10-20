@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { todayInBogota } from '../dates.js';
 import { conflict, forbidden, notFound } from '../errors.js';
-import { authenticate, requireStore, requireStoreRole, type AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticate, requireStoreRole, type AuthenticatedRequest } from '../middleware/auth.js';
 import { maxStoresPerUser, storeRepository } from '../repositories/store.js';
 import { addressSchema, neighborhoodSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
@@ -31,19 +31,6 @@ router.get('/', async (request, response, next) => {
   } catch (error) {
     next(error);
   }
-});
-
-router.get('/neighborhoods', async (_request, response, next) => {
-  try {
-    response.json({ data: await storeRepository.listNeighborhoods() });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Main store of the seller (older clients) or the one in ?storeId=.
-router.get('/me', authenticate, requireStore, (request: AuthenticatedRequest, response) => {
-  response.json({ data: request.store });
 });
 
 // Every store of the seller, the main one first. It can be empty.
@@ -87,17 +74,6 @@ router.delete('/:id', authenticate, requireStoreRole, async (request: Authentica
     const store = await getOwnedStore(request);
     await storeRepository.deactivate(store.id, request.user!.id);
     response.json({ message: `Se eliminó el local «${store.name}».` });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/:id', async (request, response, next) => {
-  try {
-    const { id } = idSchema.parse(request.params);
-    const store = await storeRepository.getById(id);
-    if (!store) return response.status(404).json({ message: 'La tienda no existe.' });
-    response.json({ data: store });
   } catch (error) {
     next(error);
   }
