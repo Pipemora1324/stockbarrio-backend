@@ -62,7 +62,11 @@ export const config = {
   smtpPass: process.env.SMTP_PASS ?? '',
   // Without MAIL_FROM the authenticated account is the sender (what Gmail uses anyway).
   mailFrom: (process.env.MAIL_FROM ?? '').trim(),
-  smtpTimeoutMs: positiveNumber(process.env.SMTP_TIMEOUT_MS, 10_000),
+  // Limit to connect and send, for both transports (SMTP_TIMEOUT_MS is still read for older setups).
+  mailTimeoutMs: positiveNumber(process.env.MAIL_TIMEOUT_MS ?? process.env.SMTP_TIMEOUT_MS, 10_000),
+  // "smtp" (default) or "brevo-api": HTTPS for hosts that block SMTP ports, like Render Free.
+  mailProvider: (process.env.MAIL_PROVIDER ?? '').trim().toLowerCase(),
+  brevoApiKey: (process.env.BREVO_API_KEY ?? '').trim(),
   accountTokenTtlMinutes: 30,
   // Alerts and notifications are paused for now: endpoints stay, but approving discounts creates no notices.
   enableAlerts: process.env.ENABLE_ALERTS === 'true',
