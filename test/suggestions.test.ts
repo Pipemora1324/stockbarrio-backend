@@ -47,8 +47,10 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     await createProducts(token);
     const result = await call('GET', '/api/suggestions', undefined, token);
     assert.equal(result.status, 200);
-    assert.deepEqual(result.body.data.map((item: { productName: string; suggestedPercent: number }) => [item.productName, item.suggestedPercent]), [['Leche entera 1 L', 55], ['Pan tajado', 35]]);
-    assert.match(result.body.data[0].reason, /Vence mañana, tienes 30 unidades/);
+    assert.deepEqual(result.body.data.map((item: { productName: string; suggestedPercent: number }) => [item.productName, item.suggestedPercent]), [['Leche entera 1 L', 50], ['Pan tajado', 30]]);
+    assert.equal(result.body.data[0].reason, 'Vence mañana, tienes 30 unidades (stock alto): sugerimos 50 % de descuento.');
+    // The range proposed when approving: from today until the expiration date.
+    assert.deepEqual([result.body.data[0].proposedStartsOn, result.body.data[0].proposedEndsOn], [today, addDays(today, 1)]);
     // Asking again does not duplicate pending suggestions.
     assert.equal((await call('GET', '/api/suggestions', undefined, token)).body.data.length, 2);
   });
@@ -65,11 +67,12 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     assert.equal((await call('POST', `/api/suggestions/${milk.id}/approve`, undefined, other.token)).status, 404);
     const approved = await call('POST', `/api/suggestions/${milk.id}/approve`, undefined, owner.token);
     assert.equal(approved.status, 200);
-    assert.deepEqual([approved.body.data.discountPercent, approved.body.data.offerPrice], [55, 2250]);
+    assert.deepEqual([approved.body.data.discountPercent, approved.body.data.offerPrice], [50, 2500]);
+    assert.deepEqual([approved.body.data.offerStartsOn, approved.body.data.offerEndsOn], [today, addDays(today, 1)]);
     assert.equal((await call('POST', `/api/suggestions/${milk.id}/approve`, undefined, owner.token)).status, 409);
 
     const afterApproval = (await call('GET', '/api/products/mine', undefined, owner.token)).body.data.find((item: { id: string }) => item.id === milkId);
-    assert.deepEqual([afterApproval.discountPercent, afterApproval.offerPrice], [55, 2250]);
+    assert.deepEqual([afterApproval.discountPercent, afterApproval.offerPrice, afterApproval.offerStatus], [50, 2500, 'active']);
     assert.deepEqual((await call('GET', '/api/suggestions', undefined, owner.token)).body.data.map((item: { productName: string }) => item.productName), ['Pan tajado']);
   });
 
@@ -107,7 +110,7 @@ describe('suggestions API', { skip: integrationSkip }, () => {
       answer = JSON.stringify({
         reasons: sent.descuentos.map((item) => ({
           productId: item.productId,
-          reason: item.productName.startsWith('Leche') ? 'La leche vence mañana y tienes mucha: el 55 % ayuda a venderla hoy.' : 'Sube el descuento al 90 % ya mismo.',
+          reason: item.productName.startsWith('Leche') ? 'La leche vence mañana y tienes mucha: el 50 % ayuda a venderla hoy.' : 'Sube el descuento al 90 % ya mismo.',
         })),
       });
       return new Response(JSON.stringify({ choices: [{ message: { content: answer } }] }));
@@ -116,9 +119,9 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     const first = await call('GET', '/api/suggestions', undefined, token);
     const milk = first.body.data.find((item: { productName: string }) => item.productName === 'Leche entera 1 L');
     const bread = first.body.data.find((item: { productName: string }) => item.productName === 'Pan tajado');
-    assert.deepEqual([milk.source, milk.suggestedPercent, milk.reason], ['ai', 55, 'La leche vence mañana y tienes mucha: el 55 % ayuda a venderla hoy.']);
+    assert.deepEqual([milk.source, milk.suggestedPercent, milk.reason], ['ai', 50, 'La leche vence mañana y tienes mucha: el 50 % ayuda a venderla hoy.']);
     // The bread text invented a 90 %, so the rule text stays.
-    assert.deepEqual([bread.source, bread.suggestedPercent], ['local', 35]);
+    assert.deepEqual([bread.source, bread.suggestedPercent], ['local', 30]);
     assert.equal(providerCalls, 1);
 
     await call('GET', '/api/suggestions', undefined, token);

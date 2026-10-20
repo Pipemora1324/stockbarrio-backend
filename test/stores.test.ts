@@ -44,7 +44,7 @@ describe('stores, public products and errors API', { skip: integrationSkip }, ()
       assert.equal(response.status, 200);
       assert.doesNotMatch(JSON.stringify(response.body), /latitude|longitude|4\.6486/);
     }
-    assert.deepEqual(Object.keys(responses[2].body.data).sort(), ['active', 'address', 'createdAt', 'id', 'name', 'neighborhood', 'phone']);
+    assert.deepEqual(Object.keys(responses[2].body.data).sort(), ['active', 'address', 'createdAt', 'id', 'name', 'neighborhood', 'phone', 'productCount', 'userId']);
     const update = await call('PUT', '/api/stores/me', { latitude: 4.65, longitude: -74.06 }, norte.token);
     assert.equal(update.status, 404);
   });
