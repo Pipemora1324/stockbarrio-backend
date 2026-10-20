@@ -358,3 +358,26 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
 - **Migraciones:** ninguna.
 - **Variables:** `SMTP_SECURE` y `SMTP_TIMEOUT_MS` son nuevas y opcionales. Para que el correo funcione en Render hacen falta `APP_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `MAIL_FROM`.
 - **Cómo probar:** pon las variables, corre `npm run mail:test -- tucorreo@ejemplo.com` y luego pide un enlace desde "¿Olvidaste tu contraseña?" con el correo de tu cuenta.
+
+### Envío por la API de Brevo (rama `correo`)
+
+- **El problema:** Render Free bloquea el tráfico saliente a los puertos SMTP 25, 465 y 587. Desde ahí el SMTP termina siempre en `ETIMEDOUT`.
+- **`MAIL_PROVIDER`:**
+  - `smtp`, o vacío, funciona como antes;
+  - `brevo-api` envía por `POST https://api.brevo.com/v3/smtp/email` con la cabecera `api-key`;
+  - un valor desconocido se avisa al arrancar y el correo queda "no configurado".
+- **Variables nuevas:** `MAIL_PROVIDER`, `BREVO_API_KEY` y `MAIL_TIMEOUT_MS`, que reemplaza a `SMTP_TIMEOUT_MS`; esta última se sigue aceptando.
+- **Transporte de Brevo:** usa `fetch` nativo con límite de 10 s, sin librerías nuevas. Tiene el mismo contrato y las mismas plantillas que SMTP:
+  - la API responde igual aunque falle el envío;
+  - el registro solo dice `Brevo 401 · unauthorized`, `Brevo 400 · invalid_parameter`, `Brevo · tiempo de espera agotado` o `Brevo · sin conexión (ENOTFOUND)`;
+  - nunca registra la clave, el correo de la persona, el enlace ni el token.
+- **Configuración incompleta:** con `brevo-api` y sin `BREVO_API_KEY`, o sin un `MAIL_FROM` válido, la API avisa al arrancar y responde "correo no configurado" (503) sin dejar de funcionar.
+- **`npm run mail:test`:**
+  - con Brevo, verifica la API key con `GET /v3/account` antes de enviar;
+  - muestra el transporte y el remitente sin claves;
+  - explica los errores típicos: clave, IP bloqueada, remitente sin verificar y puertos SMTP bloqueados en Render Free.
+- **Pruebas:** 203 en verde (97,8 % de líneas, 88,2 % de ramas). `fetch` está simulado en éxito, 401, 400, tiempo agotado y red caída, más la recuperación completa por la API. Ninguna hace llamadas reales.
+- **Variables para Render:** `MAIL_PROVIDER=brevo-api`, `BREVO_API_KEY`, `MAIL_FROM` (remitente verificado en Brevo) y `APP_URL`.
+- **Migraciones:** ninguna.
+- **Frontend:** sin cambios.
+
