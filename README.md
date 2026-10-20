@@ -64,6 +64,10 @@ Levanta PostgreSQL (puerto 5432) y la API (puerto 3000). Puedes sobrescribir `JW
 | `DATABASE_URL` | Cadena de conexión a PostgreSQL | `postgresql://stock:stock@localhost:5432/stock_barrios` |
 | `JWT_SECRET` | Secreto para firmar los tokens. Obligatorio en producción | valor de desarrollo |
 | `JWT_EXPIRES_IN` | Duración del token | `8h` |
+| `AUTH_PROVIDER` | `legacy` (login propio con bcrypt y JWT) o `supabase` (Supabase Auth). Ver [Autenticación](#autenticación-legacy-o-supabase-auth) | `legacy` |
+| `SUPABASE_URL` | URL del proyecto (`https://<ref>.supabase.co`), para validar el emisor de los tokens. Solo con `supabase` | vacío |
+| `SUPABASE_JWKS_URL` | Claves públicas para verificar los tokens (`https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`). Solo con `supabase` | vacío |
+| `SUPABASE_JWT_SECRET` | Secreto HS256, solo si el proyecto aún firma con el "Legacy JWT Secret". Es un secreto | vacío |
 | `CORS_ORIGIN` | Origen permitido para el frontend | `http://localhost:4200` |
 | `AI_PROVIDER` | `local` responde solo con reglas, sin servicios externos; cualquier otro valor usa el proveedor compatible con OpenAI | `local` |
 | `OPENAI_API_KEY` | Clave del proveedor compatible con OpenAI | vacío |
@@ -247,6 +251,20 @@ Salvaguardas:
 
 - **Anti-alucinación.** Cada precio, porcentaje, tienda y referencia se compara con los resultados; si no coincide, se usa la plantilla.
 - **Privacidad.** Al proveedor nunca se envían correos, teléfonos ni nombres de usuarios. El frontend avisa bajo el campo del chat que el mensaje se procesa con un servicio de IA externo. Si el modelo menciona una distancia, la respuesta se descarta, porque la app no conoce distancias.
+
+## Autenticación: legacy o Supabase Auth
+
+`AUTH_PROVIDER` elige el modo:
+
+- **`legacy`** (por defecto): el registro, el login y la recuperación son de la API, con bcrypt, el JWT propio y los correos de la sección siguiente.
+- **`supabase`**: el frontend usa Supabase Auth para registrarse (con confirmación por enlace), iniciar sesión y recuperar la contraseña con un código de 6 dígitos. La API verifica el access token de Supabase y saca el perfil de `public.users`:
+  - **Token:** se acepta con firma ES256 o RS256 vía JWKS, o HS256 con el secreto. Se valida el emisor `<SUPABASE_URL>/auth/v1`, la audiencia `authenticated` y el vencimiento, y el correo tiene que estar confirmado; si no, la API responde 403.
+  - **Primer acceso:** vincula la cuenta vieja con el mismo correo (columna `users.auth_id`, migración `008`), que conserva su tienda, sus productos y su rol. Si no hay cuenta, crea un cliente o una tienda con los datos del registro, validados con las mismas reglas de siempre.
+  - **Roles:** salen solo de `public.users`; el registro nunca crea administradores.
+  - **Endpoints del login propio:** quedan en el código, pero responden 404 con un mensaje claro.
+  - **Sin claves configuradas:** la API avisa al arrancar y responde 503 a las rutas con sesión.
+
+La guía paso a paso del panel de Supabase está en [SUPABASE_AUTH.md](SUPABASE_AUTH.md): proveedor de correo, URLs, SMTP con Gmail, plantillas en español, límites, claves y pruebas manuales. La API nunca usa la `service_role` key.
 
 ## Cuenta y correo
 

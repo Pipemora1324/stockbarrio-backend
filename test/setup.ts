@@ -14,6 +14,10 @@ Object.assign(process.env, {
   SMTP_HOST: '',
   MAIL_PROVIDER: '',
   BREVO_API_KEY: '',
+  AUTH_PROVIDER: 'legacy',
+  SUPABASE_URL: '',
+  SUPABASE_JWKS_URL: '',
+  SUPABASE_JWT_SECRET: '',
   ENABLE_ALERTS: 'false',
 });
 

@@ -3,6 +3,9 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { storeRepository, type StoreRecord } from '../repositories/store.js';
 import { userRepository } from '../repositories/user.js';
+import { AppError } from '../errors.js';
+import { resolveSupabaseUser } from '../services/supabase-profile.js';
+import { SupabaseTokenError, supabaseAuthProblems, verifySupabaseToken } from '../services/supabase-token.js';
 
 export type UserRole = 'admin' | 'store' | 'customer';
 
@@ -11,12 +14,43 @@ export interface AuthenticatedRequest extends Request {
   store?: StoreRecord;
 }
 
+const tokenErrors: Record<SupabaseTokenError['reason'], { status: number; message: string }> = {
+  expired: { status: 401, message: 'Tu sesión expiró. Vuelve a iniciar sesión.' },
+  invalid: { status: 401, message: 'El token de autenticación es inválido o caducó.' },
+  unavailable: { status: 503, message: 'No pudimos validar tu sesión en este momento. Inténtalo de nuevo en unos segundos.' },
+};
+
+// Supabase mode: the token comes from Supabase Auth; the role, the store and the profile come from public.users.
+const authenticateWithSupabase = async (token: string, request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+  if (supabaseAuthProblems().length) {
+    response.status(503).json({ message: 'El inicio de sesión todavía no está configurado en el servidor. Inténtalo más tarde.' });
+    return;
+  }
+  try {
+    const user = await resolveSupabaseUser(await verifySupabaseToken(token));
+    request.user = { id: user.id, role: user.role, name: user.name, email: user.email, storeId: user.storeId ?? undefined };
+    next();
+  } catch (error) {
+    if (error instanceof SupabaseTokenError) {
+      const { status, message } = tokenErrors[error.reason];
+      response.status(status).json({ message });
+      return;
+    }
+    if (error instanceof AppError) {
+      response.status(error.status).json({ message: error.message });
+      return;
+    }
+    next(error);
+  }
+};
+
 export const authenticate = async (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) {
     response.status(401).json({ message: 'Se requiere un token de autenticación.' });
     return;
   }
+  if (config.authProvider === 'supabase') return authenticateWithSupabase(token, request, response, next);
   let user: AuthenticatedRequest['user'];
   try {
     user = jwt.verify(token, config.jwtSecret) as AuthenticatedRequest['user'];
@@ -39,9 +73,18 @@ export const authenticate = async (request: AuthenticatedRequest, response: Resp
 };
 
 // Reads the token when there is one, but lets anonymous visitors through (used for per-user limits).
-export const optionalAuthenticate = (request: AuthenticatedRequest, _response: Response, next: NextFunction) => {
+export const optionalAuthenticate = async (request: AuthenticatedRequest, _response: Response, next: NextFunction) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (token) {
+  if (token && config.authProvider === 'supabase') {
+    // Only an id for the limits: the profile is not created here, and an invalid token is just an anonymous visitor.
+    try {
+      const claims = await verifySupabaseToken(token);
+      const user = await userRepository.getByAuthId(claims.sub);
+      request.user = user ? { id: user.id, role: user.role, name: user.name } : { id: `auth:${claims.sub}`, role: 'customer', name: '' };
+    } catch {
+      request.user = undefined;
+    }
+  } else if (token) {
     try {
       request.user = jwt.verify(token, config.jwtSecret) as AuthenticatedRequest['user'];
     } catch {
@@ -49,6 +92,12 @@ export const optionalAuthenticate = (request: AuthenticatedRequest, _response: R
     }
   }
   next();
+};
+
+// Endpoints of the own login. With AUTH_PROVIDER=supabase they stay in the code but answer 404 with a clear message.
+export const legacyAuthOnly = (_request: Request, response: Response, next: NextFunction) => {
+  if (config.authProvider !== 'supabase') return next();
+  response.status(404).json({ message: 'Esta opción ya no está disponible aquí: el registro, el inicio de sesión y la recuperación de contraseña se hacen con Supabase Auth desde la app.' });
 };
 
 export const requireAdmin = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {

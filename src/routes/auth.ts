@@ -5,7 +5,7 @@ import { genericResetMessage, requestPasswordReset, resetPassword, toAuthUser } 
 import { createToken, hashPassword, verifyPassword } from '../services/auth.js';
 import { userRepository } from '../repositories/user.js';
 import { database } from '../database.js';
-import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticate, legacyAuthOnly, type AuthenticatedRequest } from '../middleware/auth.js';
 import { addressSchema, emailSchema, neighborhoodSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
 const router = Router();
@@ -32,7 +32,7 @@ const registerSchema = passwordNotEmail(
 // Login stays lenient with the format so older accounts can always sign in.
 const loginSchema = z.object({ email: z.string().trim().toLowerCase().min(3).max(254), password: z.string().min(1).max(200) });
 
-router.post('/register', async (request, response, next) => {
+router.post('/register', legacyAuthOnly, async (request, response, next) => {
   try {
     if (request.body?.accountType === 'customer') {
       const input = customerRegisterSchema.parse(request.body);
@@ -64,7 +64,7 @@ router.post('/register', async (request, response, next) => {
   }
 });
 
-router.post('/login', async (request, response, next) => {
+router.post('/login', legacyAuthOnly, async (request, response, next) => {
   try {
     const input = loginSchema.parse(request.body);
     const user = await userRepository.getByEmail(input.email);
@@ -95,7 +95,7 @@ const forgotLimits = [
   rateLimit({ windowMs: 60 * 60 * 1000, limit: 3, keyGenerator: (request) => `email:${String(request.body?.email ?? '').trim().toLowerCase()}`, standardHeaders: true, legacyHeaders: false, message: accountLimitMessage }),
 ];
 
-router.post('/forgot-password', ...forgotLimits, async (request, response, next) => {
+router.post('/forgot-password', legacyAuthOnly, ...forgotLimits, async (request, response, next) => {
   try {
     const { email } = forgotSchema.parse(request.body);
     await requestPasswordReset(email);
@@ -105,7 +105,7 @@ router.post('/forgot-password', ...forgotLimits, async (request, response, next)
   }
 });
 
-router.post('/reset-password', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: accountLimitMessage }), async (request, response, next) => {
+router.post('/reset-password', legacyAuthOnly, rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: accountLimitMessage }), async (request, response, next) => {
   try {
     const { token, password } = resetSchema.parse(request.body);
     await resetPassword(token, password);

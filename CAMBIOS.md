@@ -382,3 +382,16 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
 - **Migraciones:** ninguna.
 - **Frontend:** sin cambios.
 
+## Supabase Auth opcional (rama `supabase-auth`)
+
+- **`AUTH_PROVIDER`:** `legacy` por defecto, que funciona como antes y conserva sus pruebas, o `supabase`.
+- **Modo `supabase`:**
+  - **Verificación del token:** la API verifica el access token de Supabase sin librerías nuevas: `jsonwebtoken` y las claves del JWKS leídas con `crypto`. Acepta ES256 o RS256 por `SUPABASE_JWKS_URL` (en caché, y se recargan si aparece una clave nueva) y HS256 con `SUPABASE_JWT_SECRET`, sin mezclar algoritmos. Valida el emisor, la audiencia `authenticated`, el vencimiento y el rol, y exige el correo confirmado (403).
+  - **Perfil local:** en el primer acceso vincula la cuenta vieja con el mismo correo confirmado (hereda tienda, productos y rol) o crea un cliente o una tienda con los datos del registro, con las mismas validaciones. Los roles salen de `public.users` y nunca se crean administradores.
+  - **Endpoints antiguos:** `login`, `register`, `forgot-password`, `reset-password` y los de cambio de contraseña y correo propios responden 404 con un mensaje claro.
+  - **Cambio de nombre:** sigue en `public.users`, sin emitir token propio.
+  - **Configuración incompleta:** la API avisa al arrancar y responde 503.
+- **Migración `008_users_auth_id.sql`:** aditiva, agrega `users.auth_id` (uuid, nula y única cuando tiene valor) con RLS activado.
+- **Variables nuevas:** `AUTH_PROVIDER`, `SUPABASE_URL` y `SUPABASE_JWKS_URL`, o `SUPABASE_JWT_SECRET`. No hace falta la `service_role` key.
+- **Guía:** `SUPABASE_AUTH.md`, para hacer en el panel de Supabase, con plantillas en español listas para pegar y pruebas manuales.
+- **Pruebas:** 220 en verde con Node 20 y Node 24 (97,7 % de líneas, 87,6 % de ramas), con claves de prueba generadas al vuelo y sin llamar a Supabase.

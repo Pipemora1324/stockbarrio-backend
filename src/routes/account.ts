@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
-import { changePassword, confirmEmailChange, getProfile, requestEmailChange, updateName } from '../services/account.js';
+import { config } from '../config.js';
+import { authenticate, legacyAuthOnly, type AuthenticatedRequest } from '../middleware/auth.js';
+import { changePassword, confirmEmailChange, getProfile, requestEmailChange, toAuthUser, updateName } from '../services/account.js';
+import { userRepository } from '../repositories/user.js';
 import { emailSchema, passwordSchema, personNameSchema } from '../validation.js';
 
 const router = Router();
@@ -20,13 +22,15 @@ router.get('/', authenticate, async (request: AuthenticatedRequest, response, ne
 router.patch('/name', authenticate, async (request: AuthenticatedRequest, response, next) => {
   try {
     const { name } = z.object({ name: personNameSchema }).parse(request.body);
+    // With Supabase the session token stays the same: only the local profile changes.
+    if (config.authProvider === 'supabase') return response.json({ user: toAuthUser((await userRepository.updateName(request.user!.id, name))!), message: 'Tu nombre se actualizó.' });
     response.json({ ...(await updateName(request.user!.id, name)), message: 'Tu nombre se actualizó.' });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/password', authenticate, sensitiveLimit, async (request: AuthenticatedRequest, response, next) => {
+router.post('/password', legacyAuthOnly, authenticate, sensitiveLimit, async (request: AuthenticatedRequest, response, next) => {
   try {
     const input = z.object({ currentPassword: currentPasswordSchema, newPassword: passwordSchema }).parse(request.body);
     response.json({ ...(await changePassword(request.user!.id, input.currentPassword, input.newPassword)), message: 'Tu contraseña se cambió. Cerramos las demás sesiones abiertas.' });
@@ -35,7 +39,7 @@ router.post('/password', authenticate, sensitiveLimit, async (request: Authentic
   }
 });
 
-router.post('/email', authenticate, sensitiveLimit, async (request: AuthenticatedRequest, response, next) => {
+router.post('/email', legacyAuthOnly, authenticate, sensitiveLimit, async (request: AuthenticatedRequest, response, next) => {
   try {
     const input = z.object({ newEmail: emailSchema, currentPassword: currentPasswordSchema }).parse(request.body);
     await requestEmailChange(request.user!.id, input.newEmail, input.currentPassword);
@@ -46,7 +50,7 @@ router.post('/email', authenticate, sensitiveLimit, async (request: Authenticate
 });
 
 // Opened from the email link, possibly in another browser, so it does not need a session.
-router.post('/email/confirm', sensitiveLimit, async (request, response, next) => {
+router.post('/email/confirm', legacyAuthOnly, sensitiveLimit, async (request, response, next) => {
   try {
     const { token } = z.object({ token: z.string().trim().min(20, 'El enlace no es válido.').max(200, 'El enlace no es válido.') }).parse(request.body);
     await confirmEmailChange(token);

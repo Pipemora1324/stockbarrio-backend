@@ -47,6 +47,7 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 | --- | --- | --- |
 | `database-guard.test.ts` | Unitaria | Rechazo de URLs de Supabase, nombres `_test`, claves vacías y bloqueo de red |
 | `auth.test.ts` | Integración | Login (mayúsculas, contraseña o correo errados con el mismo mensaje, hash roto), registro sin elegir rol ni repetir correo o tienda, JWT vencido o firmado con otro secreto, `token_version`, cuentas borradas, tokens antiguos sin `tv`, 403 por rol y tienda sin registro |
+| `supabase-auth.test.ts` | Unitaria e integración | Modo `AUTH_PROVIDER=supabase` con claves de prueba generadas al vuelo (ES256 en un JWKS simulado y HS256): token válido, vencido, firma falsa con el mismo `kid`, otra audiencia u otro emisor, rol distinto de `authenticated`, HS256 rechazado cuando solo hay JWKS, rotación de claves y JWKS caído (503). En la API: cliente nuevo (ignora el rol escrito en la metadata), nunca admin, datos de registro validados, tienda nueva con sus productos, vinculación de una cuenta vieja por correo confirmado, correo sin confirmar (403), cuenta ya vinculada (409), endpoints antiguos con 404, cambio de nombre sin token propio, correo actualizado tras cambiarlo en Supabase y chat sin crear perfiles. Ninguna llamada a Supabase real |
 | `account.test.ts` | Integración | Flujo completo de recuperación (enlace con `APP_URL` en texto y HTML, 30 minutos, nueva contraseña, aviso de contraseña cambiada, sesiones cerradas), fallo de SMTP con la misma respuesta y sin datos en el registro, enlace armado sin el host de la petición, cuenta antigua guardada con mayúsculas, producción sin `APP_URL`, respuesta genérica, hash del token, un solo uso, vencimiento, solo el enlace más nuevo, cambio de contraseña y de correo, tokens de un tipo usados en el otro, límites por IP y por correo, 503 sin SMTP en producción |
 | `api.test.ts` | Integración | Migraciones (no se repiten, RLS en todas las tablas, rollback completo de una migración fallida, todas aditivas), propiedad de productos (403), fechas ISO antiguas, filtros |
 | `stores.test.ts` | Integración | Tiendas por barrio y nombre, 404, la tienda solo como texto (ninguna respuesta trae coordenadas y ya no hay ruta para guardarlas), productos públicos, borrado, edición con fecha pasada y categoría antigua, stock en 0, JSON roto, rutas inexistentes, error 500 sin detalles |
@@ -65,12 +66,12 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 
 ## Resultado actual
 
-203 pruebas, todas en verde con Node 20 y Node 24 (unos 40 s con la base de pruebas local).
+220 pruebas, todas en verde con Node 20 y Node 24 (unos 40 s con la base de pruebas local).
 
-| Métrica | Correo por SMTP | Ahora (con Brevo por API) |
+| Métrica | Correo con Brevo | Ahora (Supabase Auth) |
 | --- | --- | --- |
-| Líneas | 97,8 % | 97,8 % |
-| Ramas | 88,7 % | 88,3 % |
+| Líneas | 97,8 % | 97,7 % |
+| Ramas | 88,3 % | 87,6 % |
 | Funciones | 100 % | 100 % |
 
 Lo que queda sin cubrir es sobre todo:

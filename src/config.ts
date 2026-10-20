@@ -20,6 +20,15 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL ?? 'postgresql://stock:stock@localhost:5432/stock_barrios',
   jwtSecret: requiredInProduction('JWT_SECRET') || 'desarrollo-local-cambio-obligatorio',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '8h',
+  // "legacy" (default): own login with bcrypt and JWT. "supabase": Supabase Auth tokens, verified here.
+  authProvider: (process.env.AUTH_PROVIDER ?? '').trim().toLowerCase() || 'legacy',
+  // Project URL (https://<ref>.supabase.co); the token issuer is <url>/auth/v1.
+  supabaseUrl: (process.env.SUPABASE_URL ?? '').trim().replace(/\/+$/, ''),
+  // Asymmetric signing keys (recommended): https://<ref>.supabase.co/auth/v1/.well-known/jwks.json
+  supabaseJwksUrl: (process.env.SUPABASE_JWKS_URL ?? '').trim(),
+  // Legacy shared secret (HS256), only when the project still signs with it.
+  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? '',
+  supabaseJwtAudience: (process.env.SUPABASE_JWT_AUDIENCE ?? '').trim() || 'authenticated',
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:4200',
   aiProvider: process.env.AI_PROVIDER ?? 'local',
   openAiApiKey: process.env.OPENAI_API_KEY ?? '',
