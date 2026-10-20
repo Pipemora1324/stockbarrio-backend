@@ -30,6 +30,9 @@ const fieldLabels: Record<string, string> = {
   stock: 'Stock',
   expirationDate: 'Fecha de vencimiento',
   discountPercent: 'Descuento',
+  offerStartsOn: 'Fecha de inicio',
+  offerEndsOn: 'Fecha de finalización',
+  storeId: 'Local',
   imageUrl: 'Imagen',
   id: 'Identificador',
 };
