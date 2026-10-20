@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
-import { storeRepository, type StoreRecord } from '../repositories/store.js';
+import { storeRepository, type OwnedStoreRecord } from '../repositories/store.js';
 import { userRepository } from '../repositories/user.js';
 import { AppError } from '../errors.js';
 import { resolveSupabaseUser } from '../services/supabase-profile.js';
@@ -11,7 +11,9 @@ export type UserRole = 'admin' | 'store' | 'customer';
 
 export interface AuthenticatedRequest extends Request {
   user?: { id: string; role: UserRole; name: string; email?: string; storeId?: string; tv?: number };
-  store?: StoreRecord;
+  // The store the request works on (the one in storeId, or the seller's main store) and all the seller's stores.
+  store?: OwnedStoreRecord;
+  stores?: OwnedStoreRecord[];
 }
 
 const tokenErrors: Record<SupabaseTokenError['reason'], { status: number; message: string }> = {
@@ -108,18 +110,48 @@ export const requireAdmin = (request: AuthenticatedRequest, response: Response, 
   next();
 };
 
+const storeOnlyMessage = 'Solo las tiendas pueden gestionar productos.';
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Only the role: a seller may have no store yet (for example after deleting all of them).
+export const requireStoreRole = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+  if (request.user?.role !== 'store') {
+    response.status(403).json({ message: storeOnlyMessage });
+    return;
+  }
+  next();
+};
+
+// storeId can come in the query (?storeId=) or in the body. Older clients do not send it.
+const requestedStoreId = (request: Request): string | undefined => {
+  const value = (request.query as Record<string, unknown> | undefined)?.storeId ?? (request.body as Record<string, unknown> | undefined)?.storeId;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+};
+
+// Loads the store the request works on: the one in storeId (it must belong to the seller, 403 if not) or the main one.
 export const requireStore = async (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   if (request.user?.role !== 'store') {
-    response.status(403).json({ message: 'Solo las tiendas pueden gestionar productos.' });
+    response.status(403).json({ message: storeOnlyMessage });
     return;
   }
   try {
-    const store = await storeRepository.getByUserId(request.user.id);
+    const stores = await storeRepository.listByUser(request.user.id);
+    const wanted = requestedStoreId(request);
+    if (wanted && !uuidPattern.test(wanted)) {
+      response.status(400).json({ message: 'El local elegido no es válido.' });
+      return;
+    }
+    const store = wanted ? stores.find((candidate) => candidate.id === wanted) : stores[0];
+    if (wanted && !store) {
+      response.status(403).json({ message: 'Este local no pertenece a tu cuenta.' });
+      return;
+    }
     if (!store) {
-      response.status(403).json({ message: 'Tu cuenta no tiene una tienda asociada.' });
+      response.status(403).json({ message: 'Tu cuenta no tiene una tienda asociada. Crea un local para empezar.' });
       return;
     }
     request.store = store;
+    request.stores = stores;
     next();
   } catch (error) {
     next(error);
