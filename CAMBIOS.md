@@ -434,3 +434,22 @@ Ninguna en Render. `ADMIN_EMAIL` y `ADMIN_PASSWORD` ahora son para `npm run admi
 7. **Chat:** "Tiendas cercanas" → el bot pregunta el barrio → escribe uno con tiendas → muestra los locales y sus ofertas; luego "leche" busca solo en ese barrio.
 8. **Seed:** `NODE_ENV=production npm run seed:dev` debe negarse.
 9. **Limpieza:** en una copia de la base, corre `docs/LIMPIEZA_DATOS.sql` (primero con `ROLLBACK`).
+
+## Ajustes al probar como usuario (rama `ajustes`)
+
+### Plan de limpieza (escrito antes de borrar)
+
+Se quita solo código que nadie usa. No se borra ninguna tabla, columna ni migración, y se conserva `AUTH_PROVIDER=legacy` como ruta de regreso.
+
+| Qué se quita | Por qué |
+| --- | --- |
+| `POST /api/assistant/search`, `searchAssistant` y la interpretación con IA que solo usaba esa ruta | El frontend usa el chat (`/api/assistant/chat`) desde hace varias rondas; esta ruta no la llama nadie |
+| `GET /api/stores/:id`, `GET /api/stores/me` y `storeRepository.getById` | El frontend lista los locales públicos con `GET /api/stores` y los propios con `GET /api/stores/mine` |
+| `GET /api/products/store/:storeId` y `productRepository.listPublicByStore` | Ninguna pantalla muestra los productos de un solo local por esta ruta: el catálogo ya viene agrupado |
+| `GET /api/products` (catálogo plano) y los filtros `neighborhood` y `search` del catálogo | Era para el frontend anterior; el actual usa `GET /api/products/catalog?category=` |
+| `GET /api/stores/neighborhoods` | Solo lo usaba la pantalla de alertas. El chat sigue leyendo los barrios directo del repositorio |
+| Alertas y notificaciones: `routes/alerts.ts`, `routes/notifications.ts`, `repositories/alert.ts`, `services/notifications.ts`, el aviso al aprobar descuentos, las alertas del cliente de prueba del seed y `test/notifications.test.ts` | Estaban apagadas desde hace varias rondas y no se van a reactivar; las tablas `alert_subscriptions` y `notifications` se quedan en la base sin uso |
+| Variables `ENABLE_ALERTS` y `NOTIFICATIONS_DAILY_LIMIT` | Ya no hay nada que encender |
+| `requireAdmin` | Ninguna ruta lo usa |
+| `isOfferActive` | Solo lo usaban las pruebas; el código usa `offerStatus` |
+| Comentarios obvios, y el resto pasa a español | Regla del proyecto: código en inglés; comentarios, errores y logs en español |
