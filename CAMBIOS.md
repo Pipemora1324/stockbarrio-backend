@@ -395,3 +395,42 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
 - **Variables nuevas:** `AUTH_PROVIDER`, `SUPABASE_URL` y `SUPABASE_JWKS_URL`, o `SUPABASE_JWT_SECRET`. No hace falta la `service_role` key.
 - **Guía:** `SUPABASE_AUTH.md`, para hacer en el panel de Supabase, con plantillas en español listas para pegar y pruebas manuales.
 - **Pruebas:** 220 en verde con Node 20 y Node 24 (97,7 % de líneas, 87,6 % de ramas), con claves de prueba generadas al vuelo y sin llamar a Supabase.
+
+## Rediseño, varios locales y ofertas con fechas (rama `rediseno`)
+
+### Qué cambió
+
+- **Varios locales por vendedor.** Una cuenta de tienda puede tener hasta 10 locales (`GET/POST /api/stores/mine`, `POST /api/stores`, `PATCH` y `DELETE /api/stores/:id`). Los endpoints de productos y sugerencias aceptan `storeId` (query o body) y comprueban que el local sea del usuario: si no, 403. Eliminar un local es lógico (`active = false`): deja de verse para clientes y para su dueño, sus sugerencias pendientes se cierran y no se borra ninguna fila.
+- **Compatibilidad con el frontend actual.** Sin `storeId`, todo usa el **local principal** (`users.store_id`, el primero creado): `/products/mine`, `/stores/me`, `POST /products` y `/suggestions` responden igual que antes para las cuentas de un solo local. Si se elimina el principal, pasa al siguiente.
+- **Ofertas con rango de fechas** (`offer_starts_on`, `offer_ends_on`). Activa solo si hay descuento, las dos fechas y hoy (Bogotá) está entre ellas, incluidas. Cada consulta pública lo decide en SQL con la fecha de hoy, sin tareas programadas (Render Free se duerme). Reglas al crear o editar: inicio desde hoy, fin no antes del inicio ni después del vencimiento, nada de ofertas en productos vencidos; mensajes en español. Los clientes viejos que solo mandan el porcentaje reciben el rango por defecto (de hoy al vencimiento) y editar otros campos conserva el rango. El panel ve `offerStatus` (`none`, `scheduled`, `active`, `ended`) y `expired`.
+- **Catálogo** (`GET /api/products/catalog`): sin productos con oferta activa ni vencidos, agrupado por local, con un solo filtro por categoría. `GET /api/products` devuelve lo mismo como lista plana para el frontend viejo.
+- **Ofertas**: solo activas, filtro por categoría y mayor descuento primero por defecto; cada una trae hasta cuándo dura (`offerEndsOn`, `offerDaysLeft`).
+- **Descuentos sugeridos** solo para perecederos por vencer (Frutas y verduras, Carnes, Carnes frías, Pollo, Pescados y mariscos, Lácteos, Huevos, Panadería y Comidas preparadas). Los no perecederos nunca se sugieren, pero la tienda puede ponerlos en oferta a mano. Se quitó el bono extra por categoría (ya todos son perecederos). **No hay datos de ventas**, así que no se inventa "alta rotación": las razones solo usan los días para vencer y el **stock alto** (15 o más unidades). Al aprobar se elige el rango (por defecto de hoy al vencimiento, con las mismas reglas); "aprobar todas" usa el rango por defecto de cada producto. Las notificaciones (pausadas) solo saldrían para ofertas que empiezan hoy.
+- **Chat**: usa solo ofertas activas y precios vigentes. Entiende "tiendas cercanas": sin barrio lo pregunta en la conversación, toma la respuesta como barrio, muestra los locales con sus ofertas de hoy (`stores` en la respuesta) y devuelve el barrio en `intent.neighborhood` para que la app lo recuerde en memoria. Sigue aceptando `neighborhood` en la petición (es el barrio recordado).
+- **Datos desde cero**: `npm run seed` pasó a `npm run seed:dev`, solo para desarrollo y pruebas, y se niega a correr con `NODE_ENV=production` sin excepción. El administrador se crea con `npm run admin:create`. Se quitaron de los textos y del código las referencias a tiendas de demostración. `docs/LIMPIEZA_DATOS.sql` limpia producción a mano (ver el README).
+
+### Migración 009 y la única excepción a "solo aditivas"
+
+`009_multi_store_offer_dates.sql`:
+
+1. **Quita la restricción `UNIQUE` de `stores.user_id`.** Es la única operación no aditiva del proyecto y está permitida a propósito: sin quitarla, un vendedor no puede tener un segundo local. No borra ni cambia filas ni columnas, solo deja de exigir que el usuario sea único; en su lugar se crea un índice normal (`idx_stores_user`). Busca la restricción por su definición, no por su nombre. La prueba que prohíbe `DROP` en las migraciones (`api.test.ts`) ahora permite solo los `DROP CONSTRAINT` de la 004 (que ya existía) y de esta, y `migration-009.test.ts` comprueba que no se pierde nada.
+   - Para volver atrás habría que asegurarse antes de que ningún usuario tenga dos locales activos.
+2. Agrega `offer_starts_on` y `offer_ends_on` (fechas nulas) y una regla `CHECK` para que el fin no sea anterior al inicio.
+3. Da a las ofertas que ya existían un rango (del día en que se crearon al vencimiento), para que se sigan viendo igual que hoy.
+4. Mantiene RLS activa en `stores` y `products`.
+
+### Variables nuevas
+
+Ninguna en Render. `ADMIN_EMAIL` y `ADMIN_PASSWORD` ahora son para `npm run admin:create` (antes `npm run seed -- --admin-only`).
+
+### Pruebas manuales
+
+1. **Compatibilidad:** con el backend nuevo y el frontend actual (antes de desplegar el nuevo), entra como tienda, crea y edita un producto con descuento y revisa Ofertas: debe verse igual que antes.
+2. **Varios locales:** crea "Local 2" desde el panel nuevo, agrega un producto ahí y comprueba que el Local 1 no lo muestra. Renómbralo y elimínalo (pide confirmación).
+3. **Propiedad:** con el token de otra tienda, `GET /api/products/mine?storeId=<local ajeno>` responde 403.
+4. **Rango de fechas:** crea una oferta que empiece mañana: no aparece en Ofertas y sí en el catálogo a precio normal; el panel la muestra "Oferta programada". Intenta un inicio de ayer o un fin después del vencimiento: mensajes claros.
+5. **Expiración sola:** una oferta que termina hoy desaparece de Ofertas mañana sin hacer nada.
+6. **Sugerencias:** un lácteo que vence en dos días aparece sugerido; un enlatado que vence hoy no. Aprueba con un rango corto y revisa las fechas en la tabla.
+7. **Chat:** "Tiendas cercanas" → el bot pregunta el barrio → escribe uno con tiendas → muestra los locales y sus ofertas; luego "leche" busca solo en ese barrio.
+8. **Seed:** `NODE_ENV=production npm run seed:dev` debe negarse.
+9. **Limpieza:** en una copia de la base, corre `docs/LIMPIEZA_DATOS.sql` (primero con `ROLLBACK`).

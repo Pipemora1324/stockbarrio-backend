@@ -2,7 +2,7 @@
   "all": true,
   "src": ["src"],
   "include": ["src/**/*.ts"],
-  "exclude": ["src/index.ts", "src/seed.ts"],
+  "exclude": ["src/index.ts"],
   "reporter": ["text", "html", "json-summary"],
   "reports-dir": "coverage"
 }

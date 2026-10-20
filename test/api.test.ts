@@ -59,15 +59,22 @@ describe('API', { skip: integrationSkip }, () => {
     }
   });
 
-  it('keeps every existing migration additive: no DROP TABLE, DROP COLUMN or TRUNCATE', async () => {
+  it('keeps every existing migration additive: no DROP, TRUNCATE or DELETE, with two documented exceptions', async () => {
     const { listMigrationFiles } = await import('../src/migrate.js');
     const { readFile } = await import('node:fs/promises');
     const directory = join(import.meta.dirname, '..', 'src', 'migrations');
     const files = await listMigrationFiles(directory);
-    assert.ok(files.length >= 7);
+    assert.ok(files.length >= 9);
+    // 004 replaces the role CHECK with a wider one; 009 removes the UNIQUE of stores.user_id (several stores per seller).
+    // Both only drop a constraint, never data, and the 009 one is explained in CAMBIOS.md.
+    const allowedDrops: Record<string, string[]> = {
+      '004_customer_role.sql': ['DROP CONSTRAINT %I'],
+      '009_multi_store_offer_dates.sql': ['DROP CONSTRAINT %I'],
+    };
     for (const file of files) {
       const sql = (await readFile(join(directory, file), 'utf8')).replace(/--.*$/gm, '');
-      assert.doesNotMatch(sql, /\bDROP\s+(TABLE|COLUMN|SCHEMA)\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i, file);
+      assert.doesNotMatch(sql, /\bTRUNCATE\b|\bDELETE\s+FROM\b/i, file);
+      assert.deepEqual(sql.match(/\bDROP\b[^;']*/gi) ?? [], allowedDrops[file] ?? [], file);
     }
   });
 

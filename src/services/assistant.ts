@@ -64,17 +64,29 @@ const describeResult = (result: AssistantResult) => {
   return `${result.name} en ${result.store.name} (${result.store.neighborhood}) a ${formatCop(result.offerPrice)}${discount}; ${expires}`;
 };
 
+// "A, B y C" with at most six items.
+export const listInSpanish = (items: string[], max = 6) => {
+  const shown = items.slice(0, max);
+  return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} y ${shown.at(-1)}` : (shown[0] ?? '');
+};
+
 // "Cerca de mí" without a neighborhood: ask for it and say where there are stores.
 export const askNeighborhood = (neighborhoods: string[]) => {
-  const shown = neighborhoods.slice(0, 6);
-  const list = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} y ${shown.at(-1)}` : (shown[0] ?? '');
+  const list = listInSpanish(neighborhoods);
   return `Para buscar cerca de ti, dime tu barrio${list ? `. Hay tiendas en ${list}` : ''}.`;
+};
+
+// Start of the question asked by the "Tiendas cercanas" button: the next answer is read as the neighborhood.
+export const storesQuestionStart = 'Para mostrarte las tiendas cercanas, dime en qué barrio estás';
+export const askNeighborhoodForStores = (neighborhoods: string[]) => {
+  const list = listInSpanish(neighborhoods);
+  return list ? `${storesQuestionStart}. Hay tiendas afiliadas en ${list}.` : `${storesQuestionStart}. Todavía no hay tiendas afiliadas, pero pronto llegarán.`;
 };
 
 export const buildReply = (intent: SearchIntent, results: AssistantResult[], neighborhoods: string[] = []) => {
   const what = intent.terms.length ? `«${intent.terms.join(' ')}»` : 'productos';
   const nearbyHint = intent.wantsNearby && !intent.neighborhood ? askNeighborhood(neighborhoods) : '';
-  if (!intent.terms.length && intent.preference === 'relevance') return nearbyHint || '¿Qué producto buscas? Escribe por ejemplo «huevos baratos» o «leche en Chapinero».';
+  if (!intent.terms.length && intent.preference === 'relevance') return nearbyHint || '¿Qué producto buscas? Escribe por ejemplo «huevos baratos», «leche cerca» u «ofertas de hoy».';
   if (!results.length) return `No encontré ${what} disponibles${intent.neighborhood ? ` en ${intent.neighborhood}` : ''}. Prueba con otra palabra o revisa el catálogo.`;
   const stores = new Set(results.map((result) => result.store.id)).size;
   const inStores = stores > 1 ? ` en ${stores} tiendas` : '';
@@ -131,6 +143,7 @@ export const findResults = async (intent: SearchIntent, filters: ResultFilters =
     maxPrice: filters.maxPrice,
     onlyDiscounted: intent.preference === 'best_deal' && !intent.terms.length,
     limit: candidateLimit,
+    today,
   };
   const stems = (terms: string[]) => terms.map(searchStem);
   let rows = await productRepository.search(stems(intent.terms), { ...options, matchAll: true });

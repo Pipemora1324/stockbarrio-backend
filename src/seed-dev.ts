@@ -6,7 +6,9 @@ import { addDays, todayInBogota } from './dates.js';
 import { migrate } from './migrate.js';
 import { hashPassword } from './services/auth.js';
 
-// Manual script only: it never runs on startup. Usage: npm run seed [-- --admin-only] [-- --allow-production]
+// Sample stores and products ONLY for local development and manual tests. It never runs on startup and refuses to run
+// with NODE_ENV=production (there is no flag to skip that). Production starts empty: the administrator is created
+// with npm run admin:create. Usage: npm run seed:dev
 
 interface SeedProduct {
   name: string;
@@ -15,7 +17,9 @@ interface SeedProduct {
   price: number;
   stock: number;
   expiresInDays: number;
+  // The offer runs from today until the expiration date, or starts some days later.
   discountPercent?: number;
+  offerStartsInDays?: number;
 }
 
 interface SeedStore {
@@ -26,6 +30,8 @@ interface SeedStore {
   address: string;
   phone: string;
   products: SeedProduct[];
+  // More stores of the same seller.
+  branches?: Array<Omit<SeedStore, 'email' | 'owner' | 'branches'>>;
 }
 
 const seedStores: SeedStore[] = [
@@ -39,6 +45,16 @@ const seedStores: SeedStore[] = [
       { name: 'Queso campesino 500 g', category: 'Lácteos', description: 'Queso fresco campesino.', price: 9500, stock: 6, expiresInDays: 4 },
       { name: 'Arroz 1 kg', category: 'Granos', description: 'Arroz blanco de grano largo.', price: 4300, stock: 40, expiresInDays: 240 },
       { name: 'Pollo asado entero', category: 'Comidas preparadas', description: 'Pollo asado al carbón con papa y arepa.', price: 32000, stock: 6, expiresInDays: 1 },
+      { name: 'Atún en lata 170 g', category: 'Despensa', description: 'Atún en aceite.', price: 7900, stock: 30, expiresInDays: 500, discountPercent: 15 },
+    ],
+    branches: [
+      {
+        name: 'Doña Luz Express', neighborhood: 'Teusaquillo', address: 'Calle 45 # 16-20, Bogotá', phone: '3101234568',
+        products: [
+          { name: 'Yogur natural 1 L', category: 'Lácteos', description: 'Yogur sin azúcar.', price: 8200, stock: 12, expiresInDays: 4, discountPercent: 20 },
+          { name: 'Gaseosa 1,5 L', category: 'Bebidas', description: 'Gaseosa sabor cola.', price: 5500, stock: 40, expiresInDays: 120, discountPercent: 10, offerStartsInDays: 2 },
+        ],
+      },
     ],
   },
   {
@@ -89,33 +105,27 @@ const seedStores: SeedStore[] = [
   },
 ];
 
-const seedAdmin = async (client: PoolClient) => {
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD;
-  if (!email || !password) {
-    console.info('ADMIN_EMAIL y ADMIN_PASSWORD no están definidos: no se crea ningún administrador.');
-    return;
-  }
-  if (password.length < 12) throw new Error('ADMIN_PASSWORD debe tener al menos 12 caracteres.');
-  const existing = await client.query<{ role: string }>('SELECT role FROM users WHERE email = $1', [email]);
-  if (existing.rows[0] && existing.rows[0].role !== 'admin') throw new Error(`El correo ${email} ya pertenece a una cuenta que no es de administrador.`);
-  const passwordHash = await hashPassword(password);
-  if (existing.rows[0]) {
-    await client.query('UPDATE users SET password_hash = $1 WHERE email = $2', [passwordHash, email]);
-    console.info(`Administrador ${email} actualizado.`);
-  } else {
-    await client.query(`INSERT INTO users (name, email, password_hash, role) VALUES ('Administrador', $1, $2, 'admin')`, [email, passwordHash]);
-    console.info(`Administrador ${email} creado.`);
-  }
-};
-
 const insertProduct = async (client: PoolClient, storeId: string, product: SeedProduct, today: string) => {
   const discount = product.discountPercent ?? 0;
+  const expirationDate = addDays(today, product.expiresInDays);
+  const startsOn = discount ? addDays(today, Math.min(product.offerStartsInDays ?? 0, product.expiresInDays)) : null;
   await client.query(
-    `INSERT INTO products (store_id, name, category, description, price, offer_price, stock, expiration_date, discount_percent)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [storeId, product.name, product.category, product.description, product.price, Math.round(product.price * (1 - discount / 100)), product.stock, addDays(today, product.expiresInDays), discount],
+    `INSERT INTO products (store_id, name, category, description, price, offer_price, stock, expiration_date, discount_percent, offer_starts_on, offer_ends_on)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [storeId, product.name, product.category, product.description, product.price, Math.round(product.price * (1 - discount / 100)), product.stock, expirationDate, discount, startsOn, discount ? expirationDate : null],
   );
+};
+
+const insertStore = async (client: PoolClient, userId: string, store: Omit<SeedStore, 'email' | 'owner' | 'branches'>, today: string) => {
+  const created = await client.query<{ id: string }>('INSERT INTO stores (user_id, name, neighborhood, address, phone) VALUES ($1,$2,$3,$4,$5) RETURNING id', [
+    userId,
+    store.name,
+    store.neighborhood,
+    store.address,
+    store.phone,
+  ]);
+  for (const product of store.products) await insertProduct(client, created.rows[0].id, product, today);
+  return created.rows[0].id;
 };
 
 const seedStore = async (client: PoolClient, store: SeedStore, passwordHash: string, today: string) => {
@@ -136,14 +146,11 @@ const seedStore = async (client: PoolClient, store: SeedStore, passwordHash: str
     return;
   }
   const user = await client.query<{ id: string }>(`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, 'store') RETURNING id`, [store.owner, store.email, passwordHash]);
-  const created = await client.query<{ id: string }>(
-    'INSERT INTO stores (user_id, name, neighborhood, address, phone) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-    [user.rows[0].id, store.name, store.neighborhood, store.address, store.phone],
-  );
-  const storeId = created.rows[0].id;
+  const storeId = await insertStore(client, user.rows[0].id, store, today);
   await client.query('UPDATE users SET store_id = $1 WHERE id = $2', [storeId, user.rows[0].id]);
-  for (const product of store.products) await insertProduct(client, storeId, product, today);
-  console.info(`${store.name}: creada con ${store.products.length} productos.`);
+  for (const branch of store.branches ?? []) await insertStore(client, user.rows[0].id, branch, today);
+  const count = 1 + (store.branches?.length ?? 0);
+  console.info(`${store.name}: creada con ${store.products.length} productos${count > 1 ? ` y ${count - 1} local más` : ''}.`);
 };
 
 const demoCustomer = { email: 'cliente.demo@stockbarrio.test', name: 'Cliente de prueba', alerts: [{ query: 'huevos', neighborhood: null }, { query: 'leche', neighborhood: 'Chapinero' }] };
@@ -160,23 +167,19 @@ const seedCustomer = async (client: PoolClient, passwordHash: string) => {
   console.info(`Cliente de prueba creado con ${demoCustomer.alerts.length} alertas.`);
 };
 
+// The sample data never reaches production: the check reads NODE_ENV and has no override.
+export const assertDevelopmentOnly = (nodeEnv = config.nodeEnv) => {
+  if (nodeEnv === 'production') throw new Error('seed:dev solo es para desarrollo local y pruebas: no se ejecuta con NODE_ENV=production.');
+};
+
 export const seed = async () => {
-  if (config.nodeEnv === 'production' && !process.argv.includes('--allow-production')) {
-    throw new Error('El seed no se ejecuta en producción. Si de verdad lo necesitas, usa --allow-production.');
-  }
-  const adminOnly = process.argv.includes('--admin-only');
-  if (adminOnly && (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD)) throw new Error('Con --admin-only debes definir ADMIN_EMAIL y ADMIN_PASSWORD.');
+  assertDevelopmentOnly();
   await migrate();
-  if (adminOnly) {
-    await database.withTransaction(seedAdmin);
-    return;
-  }
-  const storePassword = process.env.SEED_STORE_PASSWORD ?? (config.nodeEnv === 'production' ? '' : 'tienda12345');
-  if (storePassword.length < 8) throw new Error('Define SEED_STORE_PASSWORD (mínimo 8 caracteres) para las tiendas de ejemplo.');
+  const storePassword = process.env.SEED_STORE_PASSWORD ?? 'tienda12345';
+  if (storePassword.length < 8) throw new Error('SEED_STORE_PASSWORD debe tener al menos 8 caracteres.');
   const passwordHash = await hashPassword(storePassword);
   const today = todayInBogota();
   await database.withTransaction(async (client) => {
-    await seedAdmin(client);
     for (const store of seedStores) await seedStore(client, store, passwordHash, today);
     await seedCustomer(client, passwordHash);
   });

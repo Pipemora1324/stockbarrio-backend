@@ -8,19 +8,21 @@ El frontend (Angular) está en un repositorio aparte: [stockbarrio-frontend](htt
 
 ## Qué hace
 
-- **Cuentas con JWT y tres roles.** Las tiendas (`store`) gestionan su inventario y los clientes (`customer`) reciben alertas. El registro público solo crea esos dos tipos de cuenta; el rol `admin` solo se crea con el script de seed.
-- **Productos por tienda**, con stock, precios en pesos, descuentos y fechas de vencimiento. Cada tienda solo puede crear, editar y borrar sus propios productos (si no, responde 403).
-- **Descuentos sugeridos.** Se calculan con reglas claras (días para vencer, exceso de stock y categoría perecedera) y la tienda los aprueba o rechaza. Nada se aplica sin aprobación.
-- **Asistente de chat** en español ("busco huevos baratos", "leche en Chapinero"). Ordena por precio, descuento, categoría o vencimiento. La cercanía es solo por barrio: si el cliente pide algo "cerca de mí" sin decir el barrio, el asistente se lo pregunta y le dice en qué barrios hay tiendas.
-- **Alertas y notificaciones dentro de la app.** Cuando una tienda aprueba un descuento, se avisa a los clientes cuyas alertas coinciden. Hay un solo aviso por producto y suscripción, y un límite diario.
+- **Cuentas con JWT y tres roles.** Las tiendas (`store`) gestionan su inventario y los clientes (`customer`) compran. El registro público solo crea esos dos tipos de cuenta; el rol `admin` solo se crea con `npm run admin:create`.
+- **Varios locales por vendedor** (Local 1, Local 2...), con crear, renombrar y eliminar. Cada local tiene su inventario y la API comprueba que el local y sus productos sean del vendedor (si no, responde 403).
+- **Productos por local**, con stock, precios en pesos, fecha de vencimiento y ofertas con **rango de fechas**: una oferta solo se ve entre su fecha de inicio y su fecha de finalización (hora de Bogotá).
+- **Descuentos sugeridos** solo para productos perecederos por vencer, con reglas claras (días para vencer y stock alto). La tienda los aprueba eligiendo las fechas de la oferta, o los rechaza. Nada se aplica sin aprobación.
+- **Asistente de chat** en español ("busco huevos baratos", "ofertas de hoy", "tiendas cercanas"). Ordena por precio, descuento, categoría o vencimiento y usa solo ofertas activas. La cercanía es solo por barrio: si el cliente pide tiendas o productos cerca sin decir el barrio, el asistente se lo pregunta en la conversación y lo devuelve en `intent.neighborhood` para que la app lo recuerde (solo en memoria).
+- **Alertas y notificaciones dentro de la app** (pausadas con `ENABLE_ALERTS=false`).
 - **IA opcional.** Todo funciona en local sin claves. Con un proveedor compatible con OpenAI se pueden mejorar textos y orden, pero su respuesta se valida siempre con Zod y contra el stock, las cantidades y los límites; si falla, se usan las reglas locales.
-- **Ofertas** con filtros por barrio, categoría y texto, y orden por descuento o por vencimiento.
+- **Ofertas** activas hoy, filtradas por categoría y ordenadas por mayor descuento.
+- **Catálogo** sin los productos en oferta, agrupado por local y filtrado por categoría.
 - **Cuenta**: recuperar contraseña por correo, perfil para cambiar nombre, contraseña y correo.
 - **Seguridad**: validación con Zod (nombres, teléfono colombiano, correo, contraseña y productos), CORS, Helmet y límite de peticiones.
 
 ## Migraciones
 
-Al arrancar, la API ejecuta en orden los archivos `src/migrations/NNN_nombre.sql` que todavía no estén registrados en la tabla `schema_migrations`. Cada migración corre en su propia transacción y queda registrada, así que no se vuelve a ejecutar. Las migraciones deben ser aditivas: nunca borrar ni reescribir tablas con datos.
+Al arrancar, la API ejecuta en orden los archivos `src/migrations/NNN_nombre.sql` que todavía no estén registrados en la tabla `schema_migrations`. Cada migración corre en su propia transacción y queda registrada, así que no se vuelve a ejecutar. Las migraciones deben ser aditivas: nunca borrar ni reescribir tablas con datos. La única excepción permitida es la `009`, que quita la restricción de unicidad de `stores.user_id` para permitir varios locales por vendedor (sin tocar filas ni columnas); está explicada en `CAMBIOS.md` y la prueba de migraciones la permite solo a ella.
 
 Todas las tablas tienen RLS (row level security) activado y sin políticas, para que las claves públicas de Supabase (`anon`, `authenticated`) no puedan leerlas; la API se conecta como dueña de las tablas y no se ve afectada. El migrador activa RLS solo en las tablas nuevas que cree cada migración, así que las migraciones futuras no necesitan hacerlo a mano. No uses `FORCE ROW LEVEL SECURITY`, porque eso sí bloquearía a la API.
 
@@ -95,8 +97,8 @@ Variables solo para uso local (no hacen falta en el despliegue):
 
 | Variable | Descripción |
 | --- | --- |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Si están definidas, `npm run seed` crea o actualiza ese administrador (contraseña de 12 caracteres o más) |
-| `SEED_STORE_PASSWORD` | Contraseña de las tiendas de ejemplo del seed (por defecto `tienda12345` fuera de producción) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Para `npm run admin:create`, que crea o actualiza ese administrador (contraseña de 12 caracteres o más) |
+| `SEED_STORE_PASSWORD` | Contraseña de las tiendas de ejemplo de `npm run seed:dev` (por defecto `tienda12345`) |
 | `TEST_DATABASE_URL` | Base desechable para los tests de integración; su nombre debe terminar en `_test` porque los tests la vacían |
 
 Nunca subas el `.env` real; solo `.env.example`.
@@ -109,19 +111,38 @@ Nunca subas el `.env` real; solo `.env.example`.
 | `npm run build` | Compila a `dist/` y copia las migraciones |
 | `npm start` | Ejecuta la versión compilada |
 | `npm run migrate` | Ejecuta las migraciones pendientes |
-| `npm run seed` | Carga tiendas y productos de ejemplo (manual, ver abajo) |
+| `npm run seed:dev` | Carga tiendas y productos de ejemplo, solo en desarrollo (ver abajo) |
+| `npm run admin:create` | Crea o actualiza el administrador con `ADMIN_EMAIL` y `ADMIN_PASSWORD` |
 | `npm run mail:test -- tucorreo@ejemplo.com` | Envía un correo de prueba con la configuración actual |
 | `npm test` | Corre las pruebas |
 | `npm run test:coverage` | Corre las pruebas y genera el reporte de cobertura en `coverage/` |
 | `npm run lint` | Revisa los tipos sin compilar |
 
-## Datos de ejemplo
+## Datos desde cero
 
-`npm run seed` crea cinco tiendas (Chapinero, Teusaquillo y Suba en Bogotá, Laureles en Medellín y El Prado en Barranquilla) con productos en pesos colombianos, varios a punto de vencer. Las cuentas son `tienda.donaluz@stockbarrio.test`, `mercado.elporvenir@stockbarrio.test`, `autoservicio.lacolina@stockbarrio.test`, `granero.sanjose@stockbarrio.test` y `minimercado.elprado@stockbarrio.test`, con la contraseña de `SEED_STORE_PASSWORD`. También crea el cliente `cliente.demo@stockbarrio.test` (misma contraseña) con alertas de huevos y de leche en Chapinero.
+Producción arranca vacía: la app no depende de ninguna tienda ni producto de demostración y todas las pantallas tienen estados vacíos.
 
-El seed nunca se ejecuta al arrancar. Es idempotente (omite las tiendas que ya existen) y se niega a correr con `NODE_ENV=production` salvo que se pase `-- --allow-production`. En la imagen de Docker se ejecuta con `node dist/seed.js`.
+`npm run seed:dev` es **solo para desarrollo local y pruebas**. Crea tiendas de ejemplo con correos `@stockbarrio.test` (una de ellas con dos locales y ofertas con fechas) y un cliente de prueba, con la contraseña de `SEED_STORE_PASSWORD`. Nunca corre al arrancar, es idempotente y **se niega a correr con `NODE_ENV=production`**, sin forma de saltarse esa protección.
 
-Para crear o actualizar solo el administrador, sin tiendas de ejemplo: `ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run seed -- --admin-only`.
+El administrador se crea aparte, sin datos de ejemplo: `ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run admin:create` (en la imagen de Docker, `node dist/create-admin.js`).
+
+### Limpiar los datos de producción
+
+Para borrar los locales y productos de demostración y de pruebas que ya están en Supabase, usa `docs/LIMPIEZA_DATOS.sql`. **No es una migración**: lo corres tú a mano en el SQL Editor de Supabase. Trae consultas de vista previa, una transacción que termina en `ROLLBACK` (no cambia nada hasta que la cambies por `COMMIT`) y consultas de verificación. Conserva todas las cuentas (`users`) con su rol y su `auth_id`; solo pone `users.store_id` en NULL y borra productos, locales y sus sugerencias.
+
+### Exportar antes de limpiar
+
+Haz siempre una copia antes de correr la limpieza:
+
+1. **Copia completa** (recomendado): en Supabase, Project Settings → Database → Connection string, copia la URI de conexión directa y corre en tu computador:
+
+   ```bash
+   pg_dump "postgresql://postgres:<contraseña>@db.<ref>.supabase.co:5432/postgres" --schema=public --no-owner -f stockbarrio-antes-de-limpiar.sql
+   ```
+
+   Guarda el archivo fuera del repositorio (nunca lo subas: tiene datos de personas).
+2. **Solo las tablas que se tocan**: en el Table Editor de Supabase abre `stores`, `products` y `discount_suggestions` y usa **Export → Download as CSV**.
+3. Para restaurar desde la copia completa: `psql "<la misma URI>" -f stockbarrio-antes-de-limpiar.sql` sobre una base vacía o de prueba.
 
 ## Pruebas
 
@@ -147,24 +168,39 @@ Sin `TEST_DATABASE_URL` solo corren las pruebas unitarias. Las pruebas se niegan
 | `POST /api/auth/register` | Público | Crea una tienda (con `storeName`, `neighborhood` y `address`) o un cliente (`accountType: "customer"`) |
 | `POST /api/auth/login` | Público | Inicia sesión |
 | `GET /api/auth/me` | Con sesión | Valida el token y devuelve el usuario |
-| `GET /api/products` | Público | Catálogo con filtros `neighborhood`, `category` y `search` |
-| `GET /api/products/mine` | Tienda | Productos y datos de la tienda propia |
-| `GET /api/products/store/:storeId` | Público | Productos de una tienda |
-| `POST /api/products` · `PUT /api/products/:id` · `DELETE /api/products/:id` | Tienda dueña | Crear, editar y borrar productos |
-| `GET /api/stores` · `GET /api/stores/:id` | Público | Tiendas |
-| `GET /api/stores/neighborhoods` | Público | Barrios con tiendas activas |
-| `GET /api/stores/me` | Tienda | Datos de la tienda: nombre, barrio, dirección y teléfono |
-| `GET /api/suggestions` | Tienda | Analiza el inventario y devuelve los descuentos sugeridos pendientes |
-| `POST /api/suggestions/:id/approve` · `/:id/reject` · `/approve-all` | Tienda | Aprobar (aplica el descuento y notifica), rechazar o aprobar todas |
+| `GET /api/products/catalog?category=` | Público | Catálogo agrupado por local (`{ data: [{ store, products }], total }`), sin productos vencidos ni con oferta activa |
+| `GET /api/products` | Público | El mismo catálogo como lista plana (clientes viejos); acepta `category`, `neighborhood` y `search` |
+| `GET /api/products/mine?storeId=` | Tienda | Inventario de un local propio (sin `storeId`, el principal), con `offerStatus` (`none`, `scheduled`, `active`, `ended`) y `expired`; también devuelve `store`, `stores` y `today` |
+| `GET /api/products/store/:storeId` | Público | Productos de un local, con el precio que ven los clientes hoy |
+| `POST /api/products` · `PUT /api/products/:id` · `DELETE /api/products/:id` | Tienda dueña | Crear (en el local de `storeId` o en el principal), editar y borrar productos. Aceptan `offerStartsOn` y `offerEndsOn` |
+| `GET /api/stores` · `GET /api/stores/:id` | Público | Locales activos, con `productCount` y `offerCount` (ofertas activas hoy) |
+| `GET /api/stores/neighborhoods` | Público | Barrios con locales activos |
+| `GET /api/stores/mine` | Tienda | Todos los locales del vendedor, el principal primero, y el máximo permitido (`max`) |
+| `POST /api/stores` · `PATCH /api/stores/:id` · `DELETE /api/stores/:id` | Tienda dueña | Crear, editar o eliminar un local (eliminar es lógico: deja de verse, pero no se borran filas) |
+| `GET /api/stores/me?storeId=` | Tienda | Datos del local principal (o del de `storeId`) |
+| `GET /api/suggestions?storeId=` | Tienda | Analiza el inventario del local y devuelve las sugerencias pendientes, con el rango propuesto (`proposedStartsOn`, `proposedEndsOn`) |
+| `POST /api/suggestions/:id/approve?storeId=` · `/:id/reject` · `/approve-all` | Tienda | Aprobar con `{ offerStartsOn?, offerEndsOn? }` (por defecto, de hoy al vencimiento), rechazar o aprobar todas |
 | `POST /api/assistant/search` | Público (30 por minuto) | `{ message, neighborhood? }` → respuesta en español y resultados (la usaba el asistente anterior; el frontend ya no la llama) |
-| `POST /api/assistant/chat` | Público (10 por minuto y 100 por día, por IP y por usuario) | Chat con `{ messages, neighborhood? }` → `{ reply, mode, intent, results }` |
-| `POST /api/offers/search` | Público | Ofertas con filtros `neighborhood`, `category` y `search`, y orden `discount` o `expiring` |
+| `POST /api/assistant/chat` | Público (10 por minuto y 100 por día, por IP y por usuario) | Chat con `{ messages, neighborhood? }` → `{ reply, mode, intent, results, stores }`. `neighborhood` es el barrio que el cliente dio antes en la conversación |
+| `POST /api/offers/search` | Público | Ofertas activas hoy, con filtro `category` (también `neighborhood` y `search`) y orden `discount` (por defecto) o `expiring`. Cada oferta trae `offerStartsOn`, `offerEndsOn` y `offerDaysLeft` |
 | `GET /api/products/categories` | Público | Lista de categorías permitidas |
 | `POST /api/auth/forgot-password` · `POST /api/auth/reset-password` | Público (con límites) | Recuperar la contraseña con un enlace de un solo uso que vence en 30 minutos |
 | `GET /api/account` · `PATCH /api/account/name` · `POST /api/account/password` · `POST /api/account/email` | Con sesión | Perfil: nombre, contraseña (pide la actual) y correo (pide la actual y envía un enlace al correo nuevo) |
 | `POST /api/account/email/confirm` | Público | Confirma el correo nuevo desde el enlace |
 | `GET /api/alerts` · `POST /api/alerts` · `DELETE /api/alerts/:id` | Cliente | Alertas por producto o categoría, barrio y descuento mínimo |
 | `GET /api/notifications` · `GET /unread-count` · `POST /:id/read` · `POST /read-all` | Cliente | Bandeja de notificaciones |
+
+### Ofertas con rango de fechas
+
+Una oferta está **activa** solo si `discount_percent > 0`, tiene `offer_starts_on` y `offer_ends_on`, y hoy (America/Bogota, fechas `AAAA-MM-DD` comparadas como texto) está entre las dos, incluidas. Cada consulta pública lo decide con la fecha de hoy: no hay tareas programadas (Render Free se duerme), así que una oferta empieza y termina sola a la medianoche de Bogotá.
+
+Reglas al crear o editar una oferta (mensajes en español, iguales en el frontend):
+
+- La fecha de inicio no puede ser anterior a hoy (una oferta que ya empezó conserva su inicio si no se cambia).
+- La de finalización no puede ser anterior a la de inicio, ni anterior a hoy, ni posterior al vencimiento del producto.
+- Un producto vencido no puede tener oferta.
+- Sin fechas (clientes viejos), la oferta va de hoy al vencimiento; editar otros datos conserva el rango guardado.
+- Fuera de su rango, los clientes ven el precio normal y `discountPercent: 0`; el panel ve el descuento guardado con su estado.
 
 ### Reglas de descuento
 
@@ -178,8 +214,8 @@ Sin `TEST_DATABASE_URL` solo corren las pruebas unitarias. Las pruebas se niegan
 
 Sobre la base se suman puntos y se ajusta así:
 
-- +10 puntos con 30 unidades o más en stock, o +5 con 15 o más.
-- +5 puntos si la categoría es perecedera.
+- Solo para categorías perecederas: Frutas y verduras, Carnes, Carnes frías, Pollo, Pescados y mariscos, Lácteos, Huevos, Panadería y Comidas preparadas. Los no perecederos (Despensa, Granos, Bebidas, Aseo, Snacks y dulces, Alimentación) nunca se sugieren, pero la tienda puede ponerlos en oferta a mano.
+- +10 puntos con 30 unidades o más en stock, o +5 con 15 o más ("stock alto"). No hay datos de ventas, así que no se habla de rotación.
 - Se redondea a múltiplos de 5, con un tope de 70 %.
 - Con más de 14 días, o si el producto ya está vencido, no hay sugerencia.
 
@@ -394,6 +430,7 @@ Después, la persona puede usar "¿Olvidaste tu contraseña?" con el correo nuev
 - `src/middleware`: verificación del token y de los roles.
 - `src/errors.ts`: errores de la API y manejador de errores.
 - `src/dates.ts`, `src/format.ts`: fechas en hora de Bogotá y formato de pesos.
-- `src/seed.ts`: datos de ejemplo.
+- `src/seed-dev.ts`: datos de ejemplo solo para desarrollo; `src/create-admin.ts`: crea el administrador.
+- `docs/LIMPIEZA_DATOS.sql`: limpieza manual de datos de producción (no es una migración).
 - `src/migrations`: esquema de la base de datos.
 - `test`: pruebas unitarias y de integración.

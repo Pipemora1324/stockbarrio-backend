@@ -154,7 +154,7 @@ El frontend lee estas variables al compilar, así que después de cambiarlas hay
    - Escribe un código equivocado: debe decir "El código no es válido o ya venció. Pide otro."
    - Escribe el correcto y una contraseña nueva: debes volver al login con un aviso.
    - Entra con la nueva.
-5. **Vinculación de una cuenta vieja:** con una cuenta creada antes en modo legacy (por ejemplo `tienda.donaluz@stockbarrio.test` del seed, o una real), regístrate en Supabase con **el mismo correo** y confírmalo. Al iniciar sesión debes ver la misma tienda y los mismos productos. En SQL: `SELECT email, auth_id FROM users WHERE email = '…';` muestra el `auth_id` lleno.
+5. **Vinculación de una cuenta vieja:** con una cuenta creada antes en modo legacy, regístrate en Supabase con **el mismo correo** y confírmalo. Al iniciar sesión debes ver la misma tienda y los mismos productos. En SQL: `SELECT email, auth_id FROM users WHERE email = '…';` muestra el `auth_id` lleno.
 6. **Perfil:**
    - cambia el nombre;
    - cambia la contraseña (pide la actual);
