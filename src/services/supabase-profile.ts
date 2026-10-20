@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { database } from '../database.js';
 import { AppError, badRequest, conflict } from '../errors.js';
+import { storeRepository } from '../repositories/store.js';
 import { userRepository, type UserRecord } from '../repositories/user.js';
 import { addressSchema, neighborhoodSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 import type { SupabaseClaims } from './supabase-token.js';
@@ -30,8 +31,7 @@ const createProfile = async (claims: SupabaseClaims): Promise<UserRecord> => {
   const data = claims.metadata;
   if (data.accountType === 'store') {
     const input = storeSchema.parse(data);
-    const taken = await database.query('SELECT 1 FROM stores WHERE lower(name) = lower($1) AND lower(neighborhood) = lower($2)', [input.storeName, input.neighborhood]);
-    if (taken.rowCount) throw conflict('Ya existe una tienda con este nombre en ese barrio.');
+    if (await storeRepository.isNameTaken(input.storeName, input.neighborhood)) throw conflict('Ya existe una tienda con este nombre en ese barrio.');
     return database.withTransaction(async (client) => {
       const user = await client.query<{ id: string }>(`INSERT INTO users (name, email, password_hash, role, auth_id) VALUES ($1, $2, $3, 'store', $4) RETURNING id`, [input.name, claims.email, noLocalPassword, claims.sub]);
       const store = await client.query<{ id: string }>('INSERT INTO stores (user_id, name, neighborhood, address, phone) VALUES ($1,$2,$3,$4,$5) RETURNING id', [user.rows[0].id, input.storeName, input.neighborhood, input.address, input.phone ?? '']);

@@ -3,13 +3,14 @@ import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { genericResetMessage, requestPasswordReset, resetPassword, toAuthUser } from '../services/account.js';
 import { createToken, hashPassword, verifyPassword } from '../services/auth.js';
+import { storeRepository } from '../repositories/store.js';
 import { userRepository } from '../repositories/user.js';
 import { database } from '../database.js';
 import { authenticate, legacyAuthOnly, type AuthenticatedRequest } from '../middleware/auth.js';
 import { addressSchema, emailSchema, neighborhoodSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
 const router = Router();
-// Public registration creates store or customer accounts, never admins (those come from the seed script).
+// Public registration creates store or customer accounts, never admins (those come from npm run admin:create).
 const accountSchema = {
   name: personNameSchema,
   email: emailSchema,
@@ -43,8 +44,7 @@ router.post('/register', legacyAuthOnly, async (request, response, next) => {
     }
     const input = registerSchema.parse(request.body);
     if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
-    const stores = await database.query('SELECT id FROM stores WHERE lower(name) = lower($1) AND lower(neighborhood) = lower($2)', [input.storeName, input.neighborhood]);
-    if (stores.rows.length) return response.status(409).json({ message: 'Ya existe una tienda con este nombre en ese barrio.' });
+    if (await storeRepository.isNameTaken(input.storeName, input.neighborhood)) return response.status(409).json({ message: 'Ya existe una tienda con este nombre en ese barrio.' });
     const passwordHash = await hashPassword(input.password);
     const user = await database.withTransaction(async (client) => {
       const createdUser = await client.query<{ id: string; name: string; email: string }>(
