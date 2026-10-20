@@ -63,6 +63,33 @@ export const emailSchema = z
   .max(254, 'El correo electrónico debe tener como máximo 254 caracteres.')
   .pipe(z.email('El correo electrónico no es válido.'));
 
+// One mailbox, one account. Gmail ignores dots and "+tag" in the local part and treats googlemail.com as gmail.com,
+// so those variants are the same mailbox. Other providers are only compared in lowercase.
+const gmailDomains = new Set(['gmail.com', 'googlemail.com']);
+export const canonicalEmail = (email: string) => {
+  const normalized = email.trim().toLowerCase();
+  const at = normalized.lastIndexOf('@');
+  if (at < 1) return normalized;
+  const local = normalized.slice(0, at);
+  const domain = normalized.slice(at + 1);
+  if (!gmailDomains.has(domain)) return normalized;
+  return `${local.split('+')[0].replace(/\./g, '')}@gmail.com`;
+};
+
+// The same canonical form computed in SQL over the stored emails (no index needed, the table is small).
+export const canonicalEmailSql = (column = 'email') => {
+  const email = `lower(trim(${column}))`;
+  return `(CASE WHEN split_part(${email}, '@', 2) IN ('gmail.com', 'googlemail.com')
+    THEN replace(split_part(split_part(${email}, '@', 1), '+', 1), '.', '') || '@gmail.com' ELSE ${email} END)`;
+};
+
+export const plusAliasMessage = 'No uses alias con +; escribe tu correo normal.';
+export const emailTakenMessage = 'Este correo ya está vinculado a una cuenta. Inicia sesión o recupera tu contraseña.';
+export const hasPlusAlias = (email: string) => email.split('@')[0]?.includes('+') ?? false;
+
+// For new accounts and email changes. Login and recovery keep accepting older addresses with "+".
+export const newEmailSchema = emailSchema.refine((value) => !hasPlusAlias(value), plusAliasMessage);
+
 // bcrypt only uses the first 72 bytes, so longer passwords are rejected instead of silently truncated.
 export const passwordSchema = z
   .string({ error: 'La contraseña es obligatoria.' })
