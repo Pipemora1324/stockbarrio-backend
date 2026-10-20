@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { addDays, todayInBogota } from '../src/dates.js';
 import { AppError } from '../src/errors.js';
-import { formatDay, isOfferActive, offerMessages, offerStatus, resolveOfferRange, type OfferFields } from '../src/services/offer-rules.js';
+import { formatDay, offerMessages, offerStatus, resolveOfferRange, type OfferFields } from '../src/services/offer-rules.js';
 
 const today = '2026-10-19';
 const product = (overrides: Partial<OfferFields> = {}): OfferFields => ({
@@ -29,7 +29,6 @@ describe('offerStatus', () => {
     assert.equal(offerStatus(product({ discountPercent: 0 }), today), 'none');
     assert.equal(offerStatus(product({ offerStartsOn: null }), today), 'none');
     assert.equal(offerStatus(product({ offerEndsOn: null }), today), 'none');
-    assert.equal(isOfferActive(product({ offerEndsOn: null }), today), false);
   });
 
   it('ends with the product: an expired product never shows an active offer', () => {

@@ -102,14 +102,6 @@ export const legacyAuthOnly = (_request: Request, response: Response, next: Next
   response.status(404).json({ message: 'Esta opción ya no está disponible aquí: el registro, el inicio de sesión y la recuperación de contraseña se hacen con Supabase Auth desde la app.' });
 };
 
-export const requireAdmin = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
-  if (request.user?.role !== 'admin') {
-    response.status(403).json({ message: 'Solo los administradores pueden realizar esta operación.' });
-    return;
-  }
-  next();
-};
-
 const storeOnlyMessage = 'Solo las tiendas pueden gestionar productos.';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

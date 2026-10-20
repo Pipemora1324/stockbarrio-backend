@@ -18,8 +18,6 @@ export const offerStatus = (product: OfferFields, today: string): OfferStatus =>
   return 'active';
 };
 
-export const isOfferActive = (product: OfferFields, today: string) => offerStatus(product, today) === 'active';
-
 // SQL condition with the same rule, so every public query decides "active" with today's date and no scheduled job.
 export const activeOfferSql = (todayParam: string, alias = 'p') =>
   `(${alias}.discount_percent > 0 AND ${alias}.offer_starts_on IS NOT NULL AND ${alias}.offer_ends_on IS NOT NULL
