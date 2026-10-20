@@ -7,13 +7,13 @@ import { storeRepository } from '../repositories/store.js';
 import { userRepository } from '../repositories/user.js';
 import { database } from '../database.js';
 import { authenticate, legacyAuthOnly, type AuthenticatedRequest } from '../middleware/auth.js';
-import { addressSchema, emailSchema, neighborhoodSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
+import { addressSchema, emailSchema, emailTakenMessage, neighborhoodSchema, newEmailSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
 const router = Router();
 // Public registration creates store or customer accounts, never admins (those come from npm run admin:create).
 const accountSchema = {
   name: personNameSchema,
-  email: emailSchema,
+  email: newEmailSchema,
   password: passwordSchema,
 };
 const passwordNotEmail = <T extends { email: string; password: string }>(schema: z.ZodType<T>) =>
@@ -37,13 +37,13 @@ router.post('/register', legacyAuthOnly, async (request, response, next) => {
   try {
     if (request.body?.accountType === 'customer') {
       const input = customerRegisterSchema.parse(request.body);
-      if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
+      if (await userRepository.getByMailbox(input.email)) return response.status(409).json({ message: emailTakenMessage });
       const created = await userRepository.create({ name: input.name, email: input.email, passwordHash: await hashPassword(input.password), role: 'customer' });
       const user = toAuthUser(created);
       return response.status(201).json({ message: 'La cuenta se ha creado correctamente.', token: createToken(user), user });
     }
     const input = registerSchema.parse(request.body);
-    if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
+    if (await userRepository.getByMailbox(input.email)) return response.status(409).json({ message: emailTakenMessage });
     if (await storeRepository.isNameTaken(input.storeName, input.neighborhood)) return response.status(409).json({ message: 'Ya existe una tienda con este nombre en ese barrio.' });
     const passwordHash = await hashPassword(input.password);
     const user = await database.withTransaction(async (client) => {
@@ -71,6 +71,23 @@ router.post('/login', legacyAuthOnly, async (request, response, next) => {
     if (!user || !(await verifyPassword(input.password, user.passwordHash))) return response.status(401).json({ message: 'El correo o la contraseña son incorrectos.' });
     const safeUser = toAuthUser(user);
     response.json({ message: 'Inicio de sesión correcto.', token: createToken(safeUser, user.tokenVersion), user: safeUser });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Lets the sign up form say "this email already has an account" before creating it, also in the Supabase mode
+// (where the API never sees the sign up). It compares the mailbox, so Gmail variants with dots count as the same.
+const checkEmailLimits = [
+  rateLimit({ windowMs: 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste muchas consultas seguidas. Espera un minuto e inténtalo de nuevo.' } }),
+  rateLimit({ windowMs: 60 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste muchas consultas. Espera un rato e inténtalo de nuevo.' } }),
+];
+
+router.post('/check-email', ...checkEmailLimits, async (request, response, next) => {
+  try {
+    const { email } = z.object({ email: newEmailSchema }).parse(request.body);
+    const taken = Boolean(await userRepository.getByMailbox(email));
+    response.json(taken ? { available: false, message: emailTakenMessage } : { available: true });
   } catch (error) {
     next(error);
   }
