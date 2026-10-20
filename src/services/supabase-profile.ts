@@ -58,10 +58,11 @@ export const resolveSupabaseUser = async (claims: SupabaseClaims, attempt = 0): 
   if (linked) return syncEmail(linked, claims);
   if (!claims.emailVerified || !claims.email) throw emailNotVerified();
   try {
-    const existing = await userRepository.getByEmail(claims.email);
+    // The same mailbox (Gmail variants with dots included) is the same person: link it instead of a second account.
+    const existing = (await userRepository.getByEmail(claims.email)) ?? (await userRepository.getByMailbox(claims.email));
     if (existing) {
       const updated = await database.query<UserRecord>(`UPDATE users SET auth_id = $2 WHERE id = $1 AND auth_id IS NULL RETURNING ${userColumns}`, [existing.id, claims.sub]);
-      if (!updated.rows[0]) throw conflict('Este correo ya está vinculado a otra cuenta de StockBarrio. Escríbenos para revisarlo.');
+      if (!updated.rows[0]) throw conflict('Este correo ya está vinculado a otra cuenta de Stock Barrio. Escríbenos para revisarlo.');
       return updated.rows[0];
     }
     return await createProfile(claims);
