@@ -22,7 +22,7 @@ router.get('/', authenticate, async (request: AuthenticatedRequest, response, ne
 router.patch('/name', authenticate, async (request: AuthenticatedRequest, response, next) => {
   try {
     const { name } = z.object({ name: personNameSchema }).parse(request.body);
-    // With Supabase the session token stays the same: only the local profile changes.
+    // Con Supabase el token de la sesión no cambia: solo cambia el perfil local.
     if (config.authProvider === 'supabase') return response.json({ user: toAuthUser((await userRepository.updateName(request.user!.id, name))!), message: 'Tu nombre se actualizó.' });
     response.json({ ...(await updateName(request.user!.id, name)), message: 'Tu nombre se actualizó.' });
   } catch (error) {
@@ -49,7 +49,7 @@ router.post('/email', legacyAuthOnly, authenticate, sensitiveLimit, async (reque
   }
 });
 
-// Opened from the email link, possibly in another browser, so it does not need a session.
+// Se abre desde el enlace del correo, quizá en otro navegador, así que no necesita sesión.
 router.post('/email/confirm', legacyAuthOnly, sensitiveLimit, async (request, response, next) => {
   try {
     const { token } = z.object({ token: z.string().trim().min(20, 'El enlace no es válido.').max(200, 'El enlace no es válido.') }).parse(request.body);

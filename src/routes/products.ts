@@ -9,7 +9,7 @@ import { offerStatus, resolveOfferRange } from '../services/offer-rules.js';
 import { canonicalCategory, categorySchema, dateOnlySchema, discountSchema, futureDateSchema, priceSchema, productCategories, productNameSchema, stockSchema } from '../validation.js';
 
 const router = Router();
-// Optional offer dates. Older clients do not send them; null means "not sent".
+// Fechas de oferta opcionales. Los clientes viejos no las envían; null significa "no enviado".
 const offerDateSchema = dateOnlySchema.nullish();
 const productSchema = z.object({
   name: productNameSchema,
@@ -23,7 +23,7 @@ const productSchema = z.object({
   offerEndsOn: offerDateSchema,
   imageUrl: z.string().trim().max(300).default(''),
 });
-// On edit the date may already be in the past (the store is fixing an old product) and the category may be a legacy one.
+// Al editar, la fecha puede estar ya en el pasado (la tienda corrige un producto viejo) y la categoría puede ser una antigua.
 const updateSchema = z.object({
   name: productNameSchema.optional(),
   category: z.string().trim().min(2).max(80).optional(),
@@ -39,10 +39,10 @@ const updateSchema = z.object({
 const idSchema = z.object({ id: z.string().uuid() });
 const catalogQuerySchema = z.object({ category: z.string().trim().min(2).max(80).optional() });
 
-// For the owner: the saved values plus the state of the offer today and whether the product already expired.
+// Para el dueño: los valores guardados, el estado de la oferta hoy y si el producto ya venció.
 const withOfferState = (product: ProductRecord, today: string) => ({ ...product, offerStatus: offerStatus(product, today), expired: product.expirationDate < today });
 
-// The product must belong to one of the seller's stores (not only the one selected in the request).
+// El producto debe ser de alguno de los locales del vendedor (no solo del elegido en la petición).
 const getOwnedProduct = async (request: AuthenticatedRequest) => {
   const { id } = idSchema.parse(request.params);
   const product = await productRepository.getById(id);
@@ -51,7 +51,7 @@ const getOwnedProduct = async (request: AuthenticatedRequest) => {
   return product;
 };
 
-// Catalog grouped by store, with a single category filter.
+// Catálogo agrupado por local, con un solo filtro por categoría.
 router.get('/catalog', async (request, response, next) => {
   try {
     const { category } = catalogQuerySchema.parse(request.query);
@@ -66,7 +66,7 @@ router.get('/categories', (_request, response) => {
   response.json({ data: productCategories });
 });
 
-// Inventory of one store of the seller (?storeId=), or of the main one for older clients.
+// Inventario de un local del vendedor (?storeId=), o del principal si no se envía.
 router.get('/mine', authenticate, requireStore, async (request: AuthenticatedRequest, response, next) => {
   try {
     const today = todayInBogota();
@@ -100,7 +100,7 @@ router.put('/:id', authenticate, requireStore, async (request: AuthenticatedRequ
       input.category = category;
     }
     const merged = { ...current, ...input, offerStartsOn: input.offerStartsOn ?? null, offerEndsOn: input.offerEndsOn ?? null };
-    // Edits that do not touch the offer (name, stock, price...) keep its saved range as it is.
+    // Las ediciones que no tocan la oferta (nombre, stock, precio...) conservan su rango guardado.
     const range = resolveOfferRange(merged, today, current);
     const product = await productRepository.upsert({ ...merged, ...range, id: current.id, storeId: current.storeId });
     response.json({ data: withOfferState(product, today), message: 'El producto se ha actualizado correctamente.' });

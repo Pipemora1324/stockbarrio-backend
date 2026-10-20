@@ -11,7 +11,7 @@ export interface AuthUser {
 }
 
 export const hashPassword = (password: string) => bcrypt.hash(password, 12);
-// A malformed stored hash must count as a failed login, never as a server error.
+// Un hash guardado dañado cuenta como login fallido, nunca como error del servidor.
 export const verifyPassword = async (password: string, hashedPassword: string) => {
   try {
     return await bcrypt.compare(password, hashedPassword);
@@ -19,6 +19,6 @@ export const verifyPassword = async (password: string, hashedPassword: string) =
     return false;
   }
 };
-// "tv" is the account's token version: sessions signed with an older version are rejected.
+// "tv" es la versión del token de la cuenta: las sesiones firmadas con una versión vieja se rechazan.
 export const createToken = (user: AuthUser, tokenVersion = 0) =>
   jwt.sign({ ...user, tv: tokenVersion }, config.jwtSecret, { expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'] });

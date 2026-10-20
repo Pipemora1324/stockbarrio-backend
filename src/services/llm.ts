@@ -42,7 +42,7 @@ const minuteMs = 60_000;
 const serverErrorPauseMs = 30_000;
 const defaultRateLimitPauseMs = 60_000;
 
-// Ordered chain: every model of the main provider, then every model of the fallback. With AI_PROVIDER=local nothing is called.
+// Cadena ordenada: todos los modelos del proveedor principal y luego los del respaldo. Con AI_PROVIDER=local no se llama a nada.
 export const modelChain = (): LlmTarget[] => {
   if (config.aiProvider === 'local') return [];
   const targets: LlmTarget[] = [];
@@ -64,7 +64,7 @@ const limitsFor = (provider: ProviderName): Limits =>
     ? { requestsPerMinute: config.aiRequestsPerMinute, requestsPerDay: config.aiRequestsPerDay, tokensPerMinute: config.aiTokensPerMinute, tokensPerDay: config.aiTokensPerDay }
     : { requestsPerMinute: config.aiFallbackRequestsPerMinute, requestsPerDay: config.aiFallbackRequestsPerDay, tokensPerMinute: config.aiFallbackTokensPerMinute, tokensPerDay: config.aiFallbackTokensPerDay };
 
-// Usage per provider and model, in memory. Daily counters follow the UTC day, like the provider quotas.
+// Uso por proveedor y modelo, en memoria. Los contadores diarios siguen el día UTC, como los cupos de los proveedores.
 const usage = new Map<string, Usage>();
 const utcDay = (now: number) => new Date(now).toISOString().slice(0, 10);
 const nextUtcMidnight = (now: number) => {
@@ -86,11 +86,11 @@ const usageOf = (target: LlmTarget, now: number): Usage => {
 
 export const resetModelUsage = () => usage.clear();
 
-// Rough token count (about 4 characters per token in Spanish text and JSON), enough to keep a safety margin.
+// Cuenta aproximada de tokens (unos 4 caracteres por token en texto en español y JSON), suficiente para dejar margen.
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 export const estimatePromptTokens = (messages: ChatTurn[]) => messages.reduce((total, message) => total + estimateTokens(message.content) + 4, 0);
 
-// Whether this model can take one more request of this size without going over its budgets.
+// Si este modelo puede recibir una petición más de este tamaño sin pasarse de sus presupuestos.
 export const hasBudget = (target: LlmTarget, tokens: number, now = Date.now()) => {
   const current = usageOf(target, now);
   const limits = limitsFor(target.provider);
@@ -109,7 +109,7 @@ const addTokens = (target: LlmTarget, tokens: number, now: number) => {
   current.dayTokens += tokens;
 };
 
-// Counted before calling, with the estimate: a request that fails still used part of the quota.
+// Se cuenta antes de llamar, con la estimación: una petición que falla también gastó parte del cupo.
 const record = (target: LlmTarget, tokens: number, now: number) => {
   const current = usageOf(target, now);
   current.minuteRequests++;
@@ -117,7 +117,7 @@ const record = (target: LlmTarget, tokens: number, now: number) => {
   addTokens(target, tokens, now);
 };
 
-// Retry-After can be seconds or an HTTP date.
+// Retry-After puede venir en segundos o como fecha HTTP.
 const retryAfterMs = (header: string | null, now: number) => {
   if (!header) return null;
   const seconds = Number(header);
@@ -126,7 +126,7 @@ const retryAfterMs = (header: string | null, now: number) => {
   return Number.isNaN(date) ? null : Math.max(0, date - now);
 };
 
-// A 429 caused by a daily quota blocks the model until the next day; otherwise until Retry-After or one minute.
+// Un 429 por cupo diario bloquea el modelo hasta el día siguiente; si no, hasta Retry-After o un minuto.
 export const pauseAfterRateLimit = (headers: Headers, body: string, now = Date.now()) => {
   const fromHeader = retryAfterMs(headers.get('retry-after'), now);
   const daily = headers.get('x-ratelimit-remaining-requests') === '0' || /per day|daily|RPD|TPD|requests per day|tokens per day/i.test(body);
@@ -136,11 +136,11 @@ export const pauseAfterRateLimit = (headers: Headers, body: string, now = Date.n
 
 const block = (target: LlmTarget, pauseMs: number, reason: string, now: number) => {
   usageOf(target, now).blockedUntil = now + pauseMs;
-  // Only the provider name, model and time: never the key or the request.
+  // Solo el nombre del proveedor, el modelo y el tiempo: nunca la clave ni la petición.
   console.warn(`IA: ${target.provider}/${target.model} en pausa ${Math.round(pauseMs / 1000)} s (${reason}).`);
 };
 
-// Lowest reasoning each model family accepts, plus the flags that keep its reasoning out of the answer.
+// El razonamiento mínimo que acepta cada familia de modelos, y las opciones que lo dejan fuera de la respuesta.
 export const reasoningOptions = (model: string): Record<string, unknown> => {
   if (/gpt-oss/i.test(model)) return { reasoning_effort: 'low', include_reasoning: false };
   if (/qwen/i.test(model)) return { reasoning_effort: 'none', reasoning_format: 'hidden' };
@@ -148,10 +148,10 @@ export const reasoningOptions = (model: string): Record<string, unknown> => {
   return {};
 };
 
-// The internal reasoning is never shown: drop any <think> block before reading the JSON answer.
+// El razonamiento interno nunca se muestra: se quita cualquier bloque <think> antes de leer el JSON.
 export const stripReasoning = (content: string) => content.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '').replace(/^[\s\S]*<\/think(?:ing)?>/i, '');
 
-// Models sometimes wrap JSON in ```json fences or add a sentence around it: keep only the outer object.
+// A veces los modelos envuelven el JSON en ```json o le agregan una frase: se toma solo el objeto exterior.
 export const extractJson = (content: string): unknown => {
   const clean = stripReasoning(content);
   const start = clean.indexOf('{');
@@ -184,14 +184,14 @@ const callModel = async (target: LlmTarget, messages: ChatTurn[], maxTokens: num
   }
   if (!response.ok) return null;
   const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: { total_tokens?: number } };
-  // Replace the estimate with the real count when the provider reports it.
+  // Se reemplaza la estimación por la cuenta real cuando el proveedor la informa.
   const real = data.usage?.total_tokens;
   if (real && real > estimated) addTokens(target, real - estimated, Date.now());
   return data.choices?.[0]?.message?.content ?? null;
 };
 
-// Tries every model of the chain in order and returns the first answer that passes the schema; null when all fail,
-// so callers fall back to local rules. Prompts over the size limit are not sent at all.
+// Prueba cada modelo de la cadena en orden y devuelve la primera respuesta que pasa el esquema; null si fallan todos,
+// para que quien llama use las reglas locales. Los prompts que pasan del tamaño máximo ni se envían.
 export const requestChatJson = async <T>(messages: ChatTurn[], schema: ZodType<T>, maxTokens = config.aiMaxTokens): Promise<LlmResult<T> | null> => {
   const promptTokens = estimatePromptTokens(messages);
   if (promptTokens > config.aiMaxPromptTokens) return null;
@@ -204,12 +204,12 @@ export const requestChatJson = async <T>(messages: ChatTurn[], schema: ZodType<T
       const parsed = schema.safeParse(extractJson(content));
       if (parsed.success) return { data: parsed.data, provider: target.provider, model: target.model };
     } catch {
-      // Invalid answer: try the next model.
+      // Respuesta inválida: se prueba el siguiente modelo.
     }
   }
   return null;
 };
 
-// Single-shot helper: a system prompt plus a JSON payload as the user message.
+// Ayuda de una sola llamada: un prompt de sistema más un JSON como mensaje del usuario.
 export const requestJson = async <T>(systemPrompt: string, payload: unknown, schema: ZodType<T>, maxTokens = config.aiMaxTokens): Promise<T | null> =>
   (await requestChatJson([{ role: 'system', content: systemPrompt }, { role: 'user', content: JSON.stringify(payload) }], schema, maxTokens))?.data ?? null;

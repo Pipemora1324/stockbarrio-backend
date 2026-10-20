@@ -5,7 +5,7 @@ import type { PoolClient } from 'pg';
 import { pool } from './database.js';
 
 const migrationsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
-// Arbitrary constant so concurrent instances never run the same migration twice.
+// Constante arbitraria para que dos instancias a la vez nunca corran la misma migración.
 const migrationLockKey = 724_501;
 
 export const listMigrationFiles = async (directory = migrationsDirectory): Promise<string[]> =>
@@ -16,7 +16,7 @@ const listPublicTables = async (client: PoolClient): Promise<Set<string>> => {
   return new Set(result.rows.map((row) => row.name));
 };
 
-// Every table created by a migration gets row level security (without policies) in the same transaction.
+// Toda tabla que crea una migración recibe RLS (sin políticas) en la misma transacción.
 const enableRlsOnNewTables = async (client: PoolClient, before: Set<string>): Promise<string[]> => {
   const created = [...(await listPublicTables(client))].filter((table) => !before.has(table));
   for (const table of created) await client.query(`ALTER TABLE public.${client.escapeIdentifier(table)} ENABLE ROW LEVEL SECURITY`);

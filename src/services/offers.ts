@@ -35,7 +35,7 @@ export const findOffers = async (query: OfferQuery, today = todayInBogota()) => 
     stock: row.stock,
     expirationDate: row.expirationDate,
     daysToExpire: daysBetween(today, row.expirationDate),
-    // Last day of the offer (inclusive) and how many days it has left.
+    // Último día de la oferta (incluido) y cuántos días le quedan.
     offerStartsOn: row.offerStartsOn,
     offerEndsOn: row.offerEndsOn,
     offerDaysLeft: daysBetween(today, row.offerEndsOn ?? row.expirationDate),

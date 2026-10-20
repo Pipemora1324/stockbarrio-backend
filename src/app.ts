@@ -15,7 +15,7 @@ import suggestionsRouter from './routes/suggestions.js';
 
 export const app = express();
 app.disable('x-powered-by');
-// Render puts one proxy in front of the API: trust it so rate limits see the visitor IP and not the proxy.
+// Render pone un proxy delante de la API: se confía en él para que los límites vean la IP del visitante y no la del proxy.
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin.split(',').map((origin) => origin.trim()), credentials: true }));

@@ -4,8 +4,8 @@ import { database, pool } from './database.js';
 import { migrate } from './migrate.js';
 import { hashPassword } from './services/auth.js';
 
-// Manual script: creates or updates the administrator from ADMIN_EMAIL and ADMIN_PASSWORD. It never loads sample data,
-// so it is the only one that may run against production. Usage: npm run admin:create
+// Script manual: crea o actualiza el administrador con ADMIN_EMAIL y ADMIN_PASSWORD. Nunca carga datos de ejemplo,
+// así que es el único que puede correr contra producción. Uso: npm run admin:create
 export const minAdminPasswordLength = 12;
 
 export const upsertAdmin = async (client: PoolClient, email: string | undefined, password: string | undefined) => {

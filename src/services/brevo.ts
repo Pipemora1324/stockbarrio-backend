@@ -1,18 +1,18 @@
 import { config } from '../config.js';
 import type { MailMessage } from './mailer.js';
 
-// Brevo's transactional email API over HTTPS, for hosts that block SMTP ports (Render Free blocks 25, 465 and 587).
+// API de correo transaccional de Brevo por HTTPS, para servidores que bloquean los puertos SMTP (Render Free bloquea 25, 465 y 587).
 export const brevoSendUrl = 'https://api.brevo.com/v3/smtp/email';
 export const brevoAccountUrl = 'https://api.brevo.com/v3/account';
 
 type BrevoFailure = 'http' | 'timeout' | 'network';
 
-// Its message is safe for logs: only the HTTP status or the kind of failure, never the key, the recipient or the content.
+// Su mensaje es seguro para los logs: solo el estado HTTP o el tipo de falla, nunca la clave, el destinatario ni el contenido.
 export class BrevoError extends Error {
   constructor(
     readonly failure: BrevoFailure,
     readonly status: number | null = null,
-    // Brevo's error code (for example "unauthorized"), or the network error code.
+    // El código de error de Brevo (por ejemplo "unauthorized") o el código del error de red.
     readonly detail = '',
     readonly senderRejected = false,
   ) {
@@ -21,7 +21,7 @@ export class BrevoError extends Error {
   }
 }
 
-// MAIL_FROM as "Name <email>" or just "email".
+// MAIL_FROM como "Nombre <correo>" o solo "correo".
 export const parseSender = (value: string) => {
   const match = /^\s*(.*?)\s*<\s*([^<>\s]+)\s*>\s*$/.exec(value);
   const email = (match ? match[2] : value).trim();
@@ -29,14 +29,14 @@ export const parseSender = (value: string) => {
   return { name: match?.[1].replace(/^"(.*)"$/, '$1').trim() || 'StockBarrio', email };
 };
 
-// What is missing to send through Brevo, in Spanish (empty when it is ready).
+// Lo que falta para enviar por Brevo, en español (vacío cuando está listo).
 export const brevoProblems = () => [
   ...(config.brevoApiKey ? [] : ['falta BREVO_API_KEY']),
   ...(parseSender(config.mailFrom) ? [] : ['MAIL_FROM debe tener el remitente verificado en Brevo, por ejemplo "StockBarrio <avisos@tu-dominio.com>"']),
 ];
 
-// A regular timer instead of AbortSignal.timeout: in Node 20 that one does not keep the process alive, so a
-// script like `npm run mail:test` could end silently while Brevo is still not answering.
+// Un temporizador normal en vez de AbortSignal.timeout: en Node 20 ese no mantiene vivo el proceso, así que
+// un script como `npm run mail:test` podría terminar en silencio mientras Brevo todavía no responde.
 const request = async (url: string, init: RequestInit) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new DOMException('Brevo no respondió a tiempo.', 'TimeoutError')), config.mailTimeoutMs);
@@ -51,7 +51,7 @@ const request = async (url: string, init: RequestInit) => {
   }
 };
 
-// Reads Brevo's error code and whether it complains about the sender, without keeping its message.
+// Lee el código de error de Brevo y si se queja del remitente, sin guardar su mensaje.
 const failureOf = async (response: Response) => {
   let code = '';
   let senderRejected = false;
@@ -60,7 +60,7 @@ const failureOf = async (response: Response) => {
     if (typeof body.code === 'string') code = body.code.replace(/[^\w-]/g, '').slice(0, 40);
     senderRejected = /sender/i.test(String(body.message ?? ''));
   } catch {
-    // Not JSON: the status is enough.
+    // No es JSON: basta con el estado.
   }
   return new BrevoError('http', response.status, code, senderRejected);
 };
@@ -78,7 +78,7 @@ export const sendWithBrevo = async (message: MailMessage) => {
   if (!response.ok) throw await failureOf(response);
 };
 
-// Checks the key without sending anything (used by `npm run mail:test`).
+// Comprueba la clave sin enviar nada (lo usa `npm run mail:test`).
 export const verifyBrevo = async () => {
   const response = await request(brevoAccountUrl, { method: 'GET', headers: headers() });
   if (!response.ok) throw await failureOf(response);

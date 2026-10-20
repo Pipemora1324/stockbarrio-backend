@@ -19,20 +19,20 @@ export const toAuthUser = (user: Pick<UserRecord, 'id' | 'name' | 'email' | 'rol
   storeId: user.storeId ?? undefined,
 });
 
-// A fresh session for the user after a change that bumped the token version.
+// Una sesión nueva para la persona después de un cambio que subió la versión del token.
 export const sessionFor = (user: UserRecord) => ({ token: createToken(toAuthUser(user), user.tokenVersion), user: toAuthUser(user) });
 
-// Links are built only from APP_URL, never from the host of the request.
+// Los enlaces se arman solo con APP_URL, nunca con el host de la petición.
 export const accountLink = (path: string, token: string) => `${config.appUrl}${path}?token=${encodeURIComponent(token)}`;
 
-// Sent after answering, so the response time and the answer are the same whether the mail works or not.
-// The log never has the address, the link, the token or the SMTP password.
+// Se envía después de responder, así el tiempo y la respuesta son iguales funcione o no el correo.
+// El log nunca tiene la dirección, el enlace, el token ni la contraseña del SMTP.
 const sendInBackground = (kind: string, message: Parameters<typeof sendMail>[0]) => {
   sendMail(message).catch((error: unknown) => console.error(`No se pudo enviar el correo de ${kind}: ${describeMailError(error)}`));
 };
 
-// Always answers the same way, whether the email exists or not, and sends in the background so timing does not tell either.
-// Mail is usable when there is a transport and, in production, an APP_URL for the links.
+// Siempre responde igual, exista o no el correo, y envía en segundo plano para que el tiempo tampoco lo delate.
+// El correo se puede usar cuando hay un transporte y, en producción, un APP_URL para los enlaces.
 const canSendAccountMail = () => canSendMail() && config.appUrlConfigured;
 
 export const requestPasswordReset = async (email: string) => {
@@ -52,7 +52,7 @@ export const resetPassword = async (token: string, password: string) => {
     const found = await client.query<{ email: string; name: string }>('SELECT email, name FROM users WHERE id = $1', [reset.userId]);
     if (!found.rows[0]) throw badRequest(invalidLinkMessage);
     if (!passwordDiffersFromEmail(password, found.rows[0].email)) throw badRequest(passwordEqualsEmailMessage);
-    // The new hash and the token version change together, which signs out every previous session.
+    // El hash nuevo y la versión del token cambian juntos, lo que cierra todas las sesiones anteriores.
     await client.query('UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1', [reset.userId, passwordHash]);
     await accountTokenRepository.invalidatePasswordResets(client, reset.userId);
     return found.rows[0];
@@ -82,7 +82,7 @@ export const changePassword = async (userId: string, currentPassword: string, ne
   if (!(await verifyPassword(currentPassword, user.passwordHash))) throw badRequest('La contraseña actual no es correcta.');
   if (currentPassword === newPassword) throw badRequest('La nueva contraseña debe ser distinta de la actual.');
   if (!passwordDiffersFromEmail(newPassword, user.email)) throw badRequest(passwordEqualsEmailMessage);
-  // The current session gets a new token; every other session stops working.
+  // La sesión actual recibe un token nuevo; todas las demás dejan de funcionar.
   const updated = (await userRepository.updatePassword(userId, await hashPassword(newPassword)))!;
   notifyPasswordChanged(updated);
   return sessionFor(updated);
@@ -106,7 +106,7 @@ export const confirmEmailChange = async (token: string) => {
     if (!change) throw badRequest(invalidLinkMessage);
     const taken = await client.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2', [change.newEmail, change.userId]);
     if (taken.rowCount) throw conflict('Ese correo ya está en uso en otra cuenta.');
-    // The login email changed, so open sessions are closed and the user signs in again with the new one.
+    // Cambió el correo de acceso, así que se cierran las sesiones abiertas y la persona vuelve a entrar con el nuevo.
     await client.query('UPDATE users SET email = $2, token_version = token_version + 1 WHERE id = $1', [change.userId, change.newEmail]);
   });
 };

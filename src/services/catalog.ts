@@ -5,7 +5,7 @@ export interface CatalogGroup {
   products: Array<Omit<CatalogRow, 'storeName' | 'neighborhood' | 'address' | 'phone'>>;
 }
 
-// Rows come ordered by store; each store becomes one group with its own header and products, in the same order.
+// Las filas llegan ordenadas por local; cada local se vuelve un grupo con su encabezado y sus productos, en el mismo orden.
 export const groupByStore = (rows: CatalogRow[]): CatalogGroup[] => {
   const groups = new Map<string, CatalogGroup>();
   for (const { storeName, neighborhood, address, phone, ...product } of rows) {

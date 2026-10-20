@@ -12,7 +12,7 @@ const chatSchema = z.object({
     .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().trim().min(1, 'El mensaje no puede estar vacío.').max(500, 'Cada mensaje puede tener como máximo 500 caracteres.') }))
     .min(1, 'Escribe un mensaje.')
     .max(50)
-      // Only the last turns are used, so long conversations stay cheap.
+      // Solo se usan los últimos turnos, para que las conversaciones largas sigan siendo baratas.
     .transform((messages) => messages.slice(-maxHistoryTurns))
     .refine((messages) => messages.at(-1)?.role === 'user', 'El último mensaje debe ser del cliente.'),
   neighborhood: neighborhoodSchema.optional(),
@@ -21,7 +21,7 @@ const chatSchema = z.object({
 const limitMessage = (period: string) => ({ message: `Llegaste al límite de mensajes ${period}. Espera un poco e inténtalo de nuevo.` });
 const minuteWindow = 60 * 1000;
 const dayWindow = 24 * 60 * 60 * 1000;
-// Limits per IP for everybody, and per account when the visitor is signed in (so sharing a network is not punished twice).
+// Límites por IP para todos, y por cuenta cuando la persona inició sesión (así compartir una red no se castiga dos veces).
 const chatLimits = [
   rateLimit({ windowMs: minuteWindow, limit: () => config.chatRatePerMinute, standardHeaders: true, legacyHeaders: false, message: limitMessage('por minuto') }),
   rateLimit({ windowMs: dayWindow, limit: () => config.chatRatePerDay, standardHeaders: true, legacyHeaders: false, message: limitMessage('del día') }),

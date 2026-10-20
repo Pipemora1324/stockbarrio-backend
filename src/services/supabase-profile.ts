@@ -6,11 +6,11 @@ import { userRepository, type UserRecord } from '../repositories/user.js';
 import { addressSchema, neighborhoodSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 import type { SupabaseClaims } from './supabase-token.js';
 
-// Profiles created from Supabase have no local password: this value can never match a bcrypt hash.
+// Los perfiles creados desde Supabase no tienen contraseña local: este valor nunca coincide con un hash de bcrypt.
 export const noLocalPassword = '!supabase';
 
-// Sign up data saved by the frontend in user_metadata. It only describes the profile: the role is decided here
-// (store or customer, never admin) and an existing account always keeps the role it already has.
+// Datos del registro que el frontend guarda en user_metadata. Solo describen el perfil: el rol se decide aquí
+// (tienda o cliente, nunca administrador) y una cuenta existente siempre conserva el rol que ya tiene.
 const customerSchema = z.object({ accountType: z.literal('customer').optional(), name: personNameSchema });
 const storeSchema = z.object({
   accountType: z.literal('store'),
@@ -43,7 +43,7 @@ const createProfile = async (claims: SupabaseClaims): Promise<UserRecord> => {
   return (await database.query<UserRecord>(`INSERT INTO users (name, email, password_hash, role, auth_id) VALUES ($1, $2, $3, 'customer', $4) RETURNING ${userColumns}`, [input.name, claims.email, noLocalPassword, claims.sub])).rows[0];
 };
 
-// Keeps the local email equal to the confirmed one after the person changes it in Supabase.
+// Mantiene el correo local igual al confirmado después de que la persona lo cambia en Supabase.
 const syncEmail = async (user: UserRecord, claims: SupabaseClaims) => {
   if (!claims.emailVerified || !claims.email || user.email.trim().toLowerCase() === claims.email) return user;
   const taken = await database.query('SELECT 1 FROM users WHERE lower(trim(email)) = $1 AND id <> $2', [claims.email, user.id]);
@@ -51,14 +51,14 @@ const syncEmail = async (user: UserRecord, claims: SupabaseClaims) => {
   return (await database.query<UserRecord>(`UPDATE users SET email = $2 WHERE id = $1 RETURNING ${userColumns}`, [user.id, claims.email])).rows[0];
 };
 
-// The local profile for a verified Supabase token: already linked, an older account with the same confirmed
-// email (it keeps its store, products and role), or a new store or customer created from the sign up data.
+// El perfil local para un token de Supabase verificado: ya vinculado, una cuenta vieja con el mismo correo confirmado
+// (conserva su local, sus productos y su rol) o una tienda o un cliente nuevo creado con los datos del registro.
 export const resolveSupabaseUser = async (claims: SupabaseClaims, attempt = 0): Promise<UserRecord> => {
   const linked = await userRepository.getByAuthId(claims.sub);
   if (linked) return syncEmail(linked, claims);
   if (!claims.emailVerified || !claims.email) throw emailNotVerified();
   try {
-    // The same mailbox (Gmail variants with dots included) is the same person: link it instead of a second account.
+    // El mismo buzón (incluidas las variantes de Gmail con puntos) es la misma persona: se vincula en vez de crear otra cuenta.
     const existing = (await userRepository.getByEmail(claims.email)) ?? (await userRepository.getByMailbox(claims.email));
     if (existing) {
       const updated = await database.query<UserRecord>(`UPDATE users SET auth_id = $2 WHERE id = $1 AND auth_id IS NULL RETURNING ${userColumns}`, [existing.id, claims.sub]);
@@ -67,7 +67,7 @@ export const resolveSupabaseUser = async (claims: SupabaseClaims, attempt = 0): 
     }
     return await createProfile(claims);
   } catch (error) {
-    // Two first requests at the same time: the other one linked or created the profile, so read it again.
+    // Dos primeras peticiones a la vez: la otra ya vinculó o creó el perfil, así que se lee de nuevo.
     if (isUniqueViolation(error) && attempt === 0) return resolveSupabaseUser(claims, 1);
     if (error instanceof z.ZodError) throw badRequest(`No pudimos crear tu perfil: ${error.issues.map((issue) => issue.message).join(' ')}`);
     throw error;

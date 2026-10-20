@@ -14,7 +14,7 @@ const updateSchema = z
   .object({ name: storeNameSchema.optional(), neighborhood: neighborhoodSchema.optional(), address: addressSchema.optional(), phone: phoneSchema.optional() })
   .refine((input) => Object.values(input).some((value) => value !== undefined), 'Envía al menos un dato del local para actualizar.');
 
-// The store must exist and belong to the signed-in seller.
+// El local debe existir y ser del vendedor que inició sesión.
 const getOwnedStore = async (request: AuthenticatedRequest) => {
   const { id } = idSchema.parse(request.params);
   const store = await storeRepository.getOwned(id);
@@ -33,7 +33,7 @@ router.get('/', async (request, response, next) => {
   }
 });
 
-// Every store of the seller, the main one first. It can be empty.
+// Todos los locales del vendedor, el principal primero. Puede estar vacío.
 router.get('/mine', authenticate, requireStoreRole, async (request: AuthenticatedRequest, response, next) => {
   try {
     response.json({ data: await storeRepository.listByUser(request.user!.id), max: maxStoresPerUser });
@@ -68,7 +68,7 @@ router.patch('/:id', authenticate, requireStoreRole, async (request: Authenticat
   }
 });
 
-// Soft delete: the store and its products stop showing; the data stays in the database.
+// Borrado lógico: el local y sus productos dejan de verse; los datos se quedan en la base.
 router.delete('/:id', authenticate, requireStoreRole, async (request: AuthenticatedRequest, response, next) => {
   try {
     const store = await getOwnedStore(request);

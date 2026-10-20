@@ -49,7 +49,7 @@ export const suggestionRepository = {
         [storeId],
       )
     ).rows,
-  // Highest rejected percent per product, so a rejected suggestion only comes back if it grows.
+  // El mayor porcentaje rechazado por producto, para que una sugerencia rechazada solo vuelva si crece.
   rejectedPercents: async (client: PoolClient, storeId: string) => {
     const result = await client.query<{ productId: string; percent: number }>(
       `SELECT product_id AS "productId", MAX(suggested_percent) AS percent FROM discount_suggestions

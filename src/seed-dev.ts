@@ -6,9 +6,9 @@ import { addDays, todayInBogota } from './dates.js';
 import { migrate } from './migrate.js';
 import { hashPassword } from './services/auth.js';
 
-// Sample stores and products ONLY for local development and manual tests. It never runs on startup and refuses to run
-// with NODE_ENV=production (there is no flag to skip that). Production starts empty: the administrator is created
-// with npm run admin:create. Usage: npm run seed:dev
+// Tiendas y productos de ejemplo SOLO para desarrollo local y pruebas manuales. Nunca corre al arrancar y se niega a
+// correr con NODE_ENV=production (no hay forma de saltarse eso). Producción arranca vacía: el administrador se crea
+// con npm run admin:create. Uso: npm run seed:dev
 
 interface SeedProduct {
   name: string;
@@ -17,7 +17,7 @@ interface SeedProduct {
   price: number;
   stock: number;
   expiresInDays: number;
-  // The offer runs from today until the expiration date, or starts some days later.
+  // La oferta va de hoy hasta el vencimiento, o empieza unos días después.
   discountPercent?: number;
   offerStartsInDays?: number;
 }
@@ -30,7 +30,7 @@ interface SeedStore {
   address: string;
   phone: string;
   products: SeedProduct[];
-  // More stores of the same seller.
+  // Más locales del mismo vendedor.
   branches?: Array<Omit<SeedStore, 'email' | 'owner' | 'branches'>>;
 }
 
@@ -131,7 +131,7 @@ const insertStore = async (client: PoolClient, userId: string, store: Omit<SeedS
 const seedStore = async (client: PoolClient, store: SeedStore, passwordHash: string, today: string) => {
   const existing = await client.query<{ storeId: string | null }>('SELECT store_id AS "storeId" FROM users WHERE email = $1', [store.email]);
   if (existing.rowCount) {
-    // The store already exists: only add the sample products it does not have yet.
+    // La tienda ya existe: solo se agregan los productos de ejemplo que todavía no tiene.
     const storeId = existing.rows[0].storeId;
     let added = 0;
     for (const product of storeId ? store.products : []) {
@@ -164,7 +164,7 @@ const seedCustomer = async (client: PoolClient, passwordHash: string) => {
   console.info('Cliente de prueba creado.');
 };
 
-// The sample data never reaches production: the check reads NODE_ENV and has no override.
+// Los datos de ejemplo nunca llegan a producción: la comprobación lee NODE_ENV y no tiene excepción.
 export const assertDevelopmentOnly = (nodeEnv = config.nodeEnv) => {
   if (nodeEnv === 'production') throw new Error('seed:dev solo es para desarrollo local y pruebas: no se ejecuta con NODE_ENV=production.');
 };

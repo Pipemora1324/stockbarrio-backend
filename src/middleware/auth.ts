@@ -11,7 +11,7 @@ export type UserRole = 'admin' | 'store' | 'customer';
 
 export interface AuthenticatedRequest extends Request {
   user?: { id: string; role: UserRole; name: string; email?: string; storeId?: string; tv?: number };
-  // The store the request works on (the one in storeId, or the seller's main store) and all the seller's stores.
+  // El local con el que trabaja la petición (el de storeId o el principal del vendedor) y todos los locales del vendedor.
   store?: OwnedStoreRecord;
   stores?: OwnedStoreRecord[];
 }
@@ -22,7 +22,7 @@ const tokenErrors: Record<SupabaseTokenError['reason'], { status: number; messag
   unavailable: { status: 503, message: 'No pudimos validar tu sesión en este momento. Inténtalo de nuevo en unos segundos.' },
 };
 
-// Supabase mode: the token comes from Supabase Auth; the role, the store and the profile come from public.users.
+// Modo supabase: el token viene de Supabase Auth; el rol, el local y el perfil salen de public.users.
 const authenticateWithSupabase = async (token: string, request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   if (supabaseAuthProblems().length) {
     response.status(503).json({ message: 'El inicio de sesión todavía no está configurado en el servidor. Inténtalo más tarde.' });
@@ -61,7 +61,7 @@ export const authenticate = async (request: AuthenticatedRequest, response: Resp
     return;
   }
   try {
-    // Tokens issued before the last password or email change (or for deleted accounts) are no longer valid.
+    // Los tokens emitidos antes del último cambio de contraseña o de correo (o de cuentas borradas) ya no sirven.
     const currentVersion = await userRepository.getTokenVersion(user!.id);
     if (currentVersion === undefined || currentVersion !== (user!.tv ?? 0)) {
       response.status(401).json({ message: 'Tu sesión ya no es válida. Vuelve a iniciar sesión.' });
@@ -74,11 +74,11 @@ export const authenticate = async (request: AuthenticatedRequest, response: Resp
   }
 };
 
-// Reads the token when there is one, but lets anonymous visitors through (used for per-user limits).
+// Lee el token si lo hay, pero deja pasar a los visitantes anónimos (sirve para los límites por persona).
 export const optionalAuthenticate = async (request: AuthenticatedRequest, _response: Response, next: NextFunction) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (token && config.authProvider === 'supabase') {
-    // Only an id for the limits: the profile is not created here, and an invalid token is just an anonymous visitor.
+    // Solo un id para los límites: aquí no se crea el perfil, y un token inválido es simplemente un visitante anónimo.
     try {
       const claims = await verifySupabaseToken(token);
       const user = await userRepository.getByAuthId(claims.sub);
@@ -96,7 +96,7 @@ export const optionalAuthenticate = async (request: AuthenticatedRequest, _respo
   next();
 };
 
-// Endpoints of the own login. With AUTH_PROVIDER=supabase they stay in the code but answer 404 with a clear message.
+// Endpoints del login propio. Con AUTH_PROVIDER=supabase siguen en el código, pero responden 404 con un mensaje claro.
 export const legacyAuthOnly = (_request: Request, response: Response, next: NextFunction) => {
   if (config.authProvider !== 'supabase') return next();
   response.status(404).json({ message: 'Esta opción ya no está disponible aquí: el registro, el inicio de sesión y la recuperación de contraseña se hacen con Supabase Auth desde la app.' });
@@ -105,7 +105,7 @@ export const legacyAuthOnly = (_request: Request, response: Response, next: Next
 const storeOnlyMessage = 'Solo las tiendas pueden gestionar productos.';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Only the role: a seller may have no store yet (for example after deleting all of them).
+// Solo el rol: un vendedor puede no tener locales todavía (por ejemplo, después de eliminarlos todos).
 export const requireStoreRole = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   if (request.user?.role !== 'store') {
     response.status(403).json({ message: storeOnlyMessage });
@@ -114,13 +114,13 @@ export const requireStoreRole = (request: AuthenticatedRequest, response: Respon
   next();
 };
 
-// storeId can come in the query (?storeId=) or in the body. Older clients do not send it.
+// storeId puede venir en la query (?storeId=) o en el cuerpo. Los clientes viejos no lo envían.
 const requestedStoreId = (request: Request): string | undefined => {
   const value = (request.query as Record<string, unknown> | undefined)?.storeId ?? (request.body as Record<string, unknown> | undefined)?.storeId;
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 };
 
-// Loads the store the request works on: the one in storeId (it must belong to the seller, 403 if not) or the main one.
+// Carga el local con el que trabaja la petición: el de storeId (debe ser del vendedor, si no 403) o el principal.
 export const requireStore = async (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   if (request.user?.role !== 'store') {
     response.status(403).json({ message: storeOnlyMessage });

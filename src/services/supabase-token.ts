@@ -6,7 +6,7 @@ export interface SupabaseClaims {
   sub: string;
   email: string;
   emailVerified: boolean;
-  // user_metadata: written by the user at sign up, so it is only used for the profile data, never for roles.
+  // user_metadata: lo escribe la persona al registrarse, así que solo se usa para los datos del perfil, nunca para los roles.
   metadata: Record<string, unknown>;
 }
 
@@ -19,19 +19,19 @@ export class SupabaseTokenError extends Error {
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Supabase signs its tokens with iss = <project url>/auth/v1. Without SUPABASE_URL it is taken from the JWKS URL.
+// Supabase firma sus tokens con iss = <url del proyecto>/auth/v1. Sin SUPABASE_URL se toma de la URL del JWKS.
 export const supabaseIssuer = () => {
   const base = config.supabaseUrl || config.supabaseJwksUrl.replace(/\/auth\/v1\/.*$/, '').replace(/\/+$/, '');
   return base ? `${base}/auth/v1` : '';
 };
 
-// What is missing for the supabase mode, in Spanish (empty when it is ready).
+// Lo que falta para el modo supabase, en español (vacío cuando está listo).
 export const supabaseAuthProblems = () => [
   ...(config.supabaseJwksUrl || config.supabaseJwtSecret ? [] : ['falta SUPABASE_JWKS_URL (o SUPABASE_JWT_SECRET si el proyecto usa el secreto compartido)']),
   ...(supabaseIssuer() ? [] : ['falta SUPABASE_URL para validar el emisor de los tokens']),
 ];
 
-// Public keys from the JWKS endpoint, cached and refreshed when an unknown key id appears (key rotation).
+// Claves públicas del endpoint JWKS, en caché y renovadas cuando aparece un id de clave desconocido (rotación de claves).
 const jwksTtlMs = 10 * 60 * 1000;
 const minRefreshMs = 30 * 1000;
 const jwksTimeoutMs = 5000;
@@ -54,7 +54,7 @@ const loadJwks = async () => {
       try {
         keys.set(key.kid, createPublicKey({ key, format: 'jwk' }));
       } catch {
-        // A key this Node version cannot read is skipped.
+        // Se salta una clave que esta versión de Node no puede leer.
       }
     }
     jwks = { keys, fetchedAt: Date.now() };
@@ -77,8 +77,8 @@ const publicKeyFor = async (kid: string) => {
   return key;
 };
 
-// Verifies signature, issuer, audience and expiration. HS256 is only accepted with SUPABASE_JWT_SECRET and
-// RS256/ES256 only with the JWKS keys, so one kind of key can never be used to forge the other.
+// Verifica la firma, el emisor, la audiencia y el vencimiento. HS256 solo se acepta con SUPABASE_JWT_SECRET y
+// RS256/ES256 solo con las claves del JWKS, para que un tipo de clave nunca sirva para falsificar el otro.
 export const verifySupabaseToken = async (token: string): Promise<SupabaseClaims> => {
   const decoded = jwt.decode(token, { complete: true });
   if (!decoded || typeof decoded.payload === 'string') throw new SupabaseTokenError('invalid');
@@ -99,7 +99,7 @@ export const verifySupabaseToken = async (token: string): Promise<SupabaseClaims
   return {
     sub: payload.sub.toLowerCase(),
     email: typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '',
-    // Supabase sets user_metadata.email_verified when the address is confirmed.
+    // Supabase marca user_metadata.email_verified cuando se confirma la dirección.
     emailVerified: metadata.email_verified === true,
     metadata,
   };

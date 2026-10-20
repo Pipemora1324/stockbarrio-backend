@@ -19,7 +19,7 @@ export interface AppliedDiscount {
   offerEndsOn: string;
 }
 
-// Range chosen by the store when approving. Without dates: from today until the expiration date.
+// Rango que elige la tienda al aprobar. Sin fechas: de hoy al vencimiento.
 export interface OfferRangeInput {
   offerStartsOn?: string | null;
   offerEndsOn?: string | null;
@@ -48,7 +48,7 @@ interface ReasonInput {
 
 const numbersIn = (text: string, pattern: RegExp) => [...text.matchAll(pattern)].map((match) => Number(match[1].replace(/\./g, '')));
 
-// A written reason is kept only if it does not invent numbers: every percent and peso amount must be one the rules produced.
+// Una razón escrita solo se conserva si no inventa números: cada porcentaje y monto en pesos debe ser uno de los que dieron las reglas.
 export const isTrustworthyReason = (reason: string, input: ReasonInput) => {
   if (/https?:|www\.|@|<|>/i.test(reason)) return false;
   const percents = numbersIn(reason, /(\d{1,3})\s?%/g);
@@ -56,7 +56,7 @@ export const isTrustworthyReason = (reason: string, input: ReasonInput) => {
   return percents.every((value) => value === input.suggestedPercent || value === input.currentPercent) && amounts.every((value) => value === input.price || value === input.suggestedPrice);
 };
 
-// Asks the provider to write the explanation of new or changed suggestions only; the rules always keep the percent.
+// Pide al proveedor que redacte la explicación solo de las sugerencias nuevas o que cambiaron; el porcentaje siempre lo ponen las reglas.
 export const writeReasonsWithAi = async (inputs: ReasonInput[]): Promise<Map<string, string>> => {
   const written = new Map<string, string>();
   if (!isLlmEnabled() || !inputs.length) return written;
@@ -86,12 +86,12 @@ const sameNumbers = (stored: { suggestedPercent: number; daysToExpire: number } 
 export const refreshSuggestions = async (storeId: string, today = todayInBogota()) => {
   const products = await productRepository.listByStore(storeId);
   const byId = new Map(products.map((product) => [product.id, product]));
-  // The discount that counts is the one customers see now or will see (an offer that ended no longer counts).
+  // El descuento que cuenta es el que los clientes ven o van a ver (una oferta terminada ya no cuenta).
   const inventory = products.map((product) => ({ ...product, discountPercent: ['active', 'scheduled'].includes(offerStatus(product, today)) ? product.discountPercent : 0 }));
   const local = analyzeInventory(inventory, today);
 
-  // One AI call per store and per day, with all its suggestions in a single batch. The texts are saved, so later
-  // visits that day reuse them; suggestions that appear later that day use the rule text.
+  // Una llamada a la IA por local y por día, con todas sus sugerencias en un solo lote. Los textos se guardan, así que las
+  // visitas siguientes de ese día los reutilizan; las sugerencias que aparecen más tarde usan el texto de las reglas.
   const claimed = local.length > 0 && isLlmEnabled() && (await storeRepository.claimAiReasonsDay(storeId, today));
   const written = claimed
     ? await writeReasonsWithAi(
@@ -122,7 +122,7 @@ export const refreshSuggestions = async (storeId: string, today = todayInBogota(
     const stale = [...pending.values()].filter((row) => !kept.has(row.productId)).map((row) => row.id);
     if (stale.length) await suggestionRepository.expire(client, stale);
   });
-  // The range the panel proposes when approving: from today until the expiration date (editable there).
+  // El rango que propone el panel al aprobar: de hoy al vencimiento (editable ahí).
   return (await suggestionRepository.listPending(storeId)).map((suggestion) => ({ ...suggestion, proposedStartsOn: today, proposedEndsOn: suggestion.expirationDate }));
 };
 
@@ -143,7 +143,7 @@ const applyDiscount = async (
     return null;
   }
   const discountPercent = Number(suggestion.suggestedPercent);
-  // Same rules as a manual offer: starts today or later, ends on or before the expiration date.
+  // Las mismas reglas de una oferta manual: empieza hoy o después y termina a más tardar el día del vencimiento.
   const dates = resolveOfferRange({ discountPercent, expirationDate: current.expirationDate, ...range }, today);
   const offerPrice = priceWithDiscount(Number(current.price), discountPercent);
   await client.query('UPDATE products SET discount_percent = $2, offer_price = $3, offer_starts_on = $4, offer_ends_on = $5 WHERE id = $1', [
@@ -174,7 +174,7 @@ export const approveSuggestion = async (storeId: string, id: string, range: Offe
   return applied;
 };
 
-// Every pending suggestion with the default range of each product (today until its expiration date).
+// Todas las sugerencias pendientes con el rango por defecto de cada producto (de hoy a su vencimiento).
 export const approveAllSuggestions = async (storeId: string, today = todayInBogota()): Promise<AppliedDiscount[]> =>
   database.withTransaction(async (client) => {
     const applied: AppliedDiscount[] = [];

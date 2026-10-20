@@ -1,6 +1,6 @@
 import { badRequest } from '../errors.js';
 
-// Offer dates are plain 'YYYY-MM-DD' days of the Bogota calendar, compared as text (never through toISOString).
+// Las fechas de oferta son días 'AAAA-MM-DD' del calendario de Bogotá, comparados como texto (nunca con toISOString).
 export interface OfferFields {
   discountPercent: number;
   offerStartsOn: string | null;
@@ -8,7 +8,7 @@ export interface OfferFields {
   expirationDate: string;
 }
 
-// none: no discount or no dates; scheduled: starts later; active: visible today; ended: its last day already passed.
+// none: sin descuento o sin fechas; scheduled: empieza después; active: se ve hoy; ended: su último día ya pasó.
 export type OfferStatus = 'none' | 'scheduled' | 'active' | 'ended';
 
 export const offerStatus = (product: OfferFields, today: string): OfferStatus => {
@@ -18,12 +18,12 @@ export const offerStatus = (product: OfferFields, today: string): OfferStatus =>
   return 'active';
 };
 
-// SQL condition with the same rule, so every public query decides "active" with today's date and no scheduled job.
+// Condición SQL con la misma regla, para que cada consulta pública decida "activa" con la fecha de hoy y sin tareas programadas.
 export const activeOfferSql = (todayParam: string, alias = 'p') =>
   `(${alias}.discount_percent > 0 AND ${alias}.offer_starts_on IS NOT NULL AND ${alias}.offer_ends_on IS NOT NULL
     AND ${todayParam}::date BETWEEN ${alias}.offer_starts_on AND ${alias}.offer_ends_on AND ${alias}.expiration_date >= ${todayParam}::date)`;
 
-// 2026-10-19 -> 19/10/2026, for the messages.
+// 2026-10-19 -> 19/10/2026, para los mensajes.
 export const formatDay = (day: string) => day.split('-').reverse().join('/');
 
 export const offerMessages = {
@@ -37,17 +37,17 @@ export const offerMessages = {
 export interface OfferChange {
   discountPercent: number;
   expirationDate: string;
-  // undefined or null: not sent. Older clients only send the percent, so the range gets defaults.
+  // undefined o null: no se envió. Los clientes viejos solo envían el porcentaje, así que el rango toma los valores por defecto.
   offerStartsOn?: string | null;
   offerEndsOn?: string | null;
 }
 
-// Decides the range saved with a product and checks the rules. Without a discount the range is cleared.
-// Dates that were not sent keep their saved value or get the defaults: from today until the expiration date.
-// A start that is not being changed may be in the past (an offer that is already running).
+// Decide el rango que se guarda con un producto y comprueba las reglas. Sin descuento, el rango se borra.
+// Las fechas que no se enviaron conservan su valor guardado o toman las de por defecto: de hoy al vencimiento.
+// Un inicio que no se está cambiando puede estar en el pasado (una oferta que ya empezó).
 export const resolveOfferRange = (change: OfferChange, today: string, previous?: OfferFields): { offerStartsOn: string | null; offerEndsOn: string | null } => {
   if (!(change.discountPercent > 0)) return { offerStartsOn: null, offerEndsOn: null };
-  // Nothing about the offer changed (for example only the stock was edited): the saved range stays as it is.
+  // No cambió nada de la oferta (por ejemplo, solo se editó el stock): el rango guardado se queda como está.
   const unchanged =
     previous &&
     previous.discountPercent === change.discountPercent &&
@@ -59,7 +59,7 @@ export const resolveOfferRange = (change: OfferChange, today: string, previous?:
   const hadOffer = Boolean(previous && previous.discountPercent > 0 && previous.offerStartsOn && previous.offerEndsOn);
   const startsOn = change.offerStartsOn || (hadOffer ? previous!.offerStartsOn! : today);
   let endsOn = change.offerEndsOn || (hadOffer ? previous!.offerEndsOn! : change.expirationDate);
-  // Only for clients that do not send dates: the end follows a new, earlier expiration date.
+  // Solo para los clientes que no envían fechas: el fin sigue a un vencimiento nuevo y más cercano.
   if (!change.offerEndsOn && endsOn > change.expirationDate) endsOn = change.expirationDate;
   const startChanged = !hadOffer || startsOn !== previous!.offerStartsOn;
   const endChanged = !hadOffer || endsOn !== previous!.offerEndsOn;

@@ -10,7 +10,7 @@ import { authenticate, legacyAuthOnly, type AuthenticatedRequest } from '../midd
 import { addressSchema, emailSchema, emailTakenMessage, neighborhoodSchema, newEmailSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
 const router = Router();
-// Public registration creates store or customer accounts, never admins (those come from npm run admin:create).
+// El registro público crea cuentas de tienda o de cliente, nunca de administrador (esas salen de npm run admin:create).
 const accountSchema = {
   name: personNameSchema,
   email: newEmailSchema,
@@ -19,7 +19,7 @@ const accountSchema = {
 const passwordNotEmail = <T extends { email: string; password: string }>(schema: z.ZodType<T>) =>
   schema.refine((input) => passwordDiffersFromEmail(input.password, input.email), { message: passwordEqualsEmailMessage, path: ['password'] });
 const customerRegisterSchema = passwordNotEmail(z.object({ accountType: z.literal('customer'), ...accountSchema }));
-// accountType is optional for stores so older clients keep working.
+// accountType es opcional para las tiendas, así los clientes viejos siguen funcionando.
 const registerSchema = passwordNotEmail(
   z.object({
     accountType: z.literal('store').optional(),
@@ -30,7 +30,7 @@ const registerSchema = passwordNotEmail(
     phone: phoneSchema.optional(),
   }),
 );
-// Login stays lenient with the format so older accounts can always sign in.
+// El login es flexible con el formato para que las cuentas viejas siempre puedan entrar.
 const loginSchema = z.object({ email: z.string().trim().toLowerCase().min(3).max(254), password: z.string().min(1).max(200) });
 
 router.post('/register', legacyAuthOnly, async (request, response, next) => {
@@ -76,8 +76,8 @@ router.post('/login', legacyAuthOnly, async (request, response, next) => {
   }
 });
 
-// Lets the sign up form say "this email already has an account" before creating it, also in the Supabase mode
-// (where the API never sees the sign up). It compares the mailbox, so Gmail variants with dots count as the same.
+// Permite que el registro diga "este correo ya tiene cuenta" antes de crearla, también en el modo supabase
+// (donde la API nunca ve el registro). Compara el buzón, así que las variantes de Gmail con puntos cuentan como el mismo.
 const checkEmailLimits = [
   rateLimit({ windowMs: 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste muchas consultas seguidas. Espera un minuto e inténtalo de nuevo.' } }),
   rateLimit({ windowMs: 60 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste muchas consultas. Espera un rato e inténtalo de nuevo.' } }),
@@ -106,7 +106,7 @@ router.get('/me', authenticate, async (request: AuthenticatedRequest, response, 
 const forgotSchema = z.object({ email: emailSchema });
 const resetSchema = z.object({ token: z.string().trim().min(20, 'El enlace no es válido.').max(200, 'El enlace no es válido.'), password: passwordSchema });
 const accountLimitMessage = { message: 'Hiciste demasiadas solicitudes. Espera unos minutos e inténtalo de nuevo.' };
-// Per IP, and per email so nobody can flood a single inbox from many addresses.
+// Por IP y por correo, para que nadie pueda llenar un buzón desde muchas direcciones.
 const forgotLimits = [
   rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false, message: accountLimitMessage }),
   rateLimit({ windowMs: 60 * 60 * 1000, limit: 3, keyGenerator: (request) => `email:${String(request.body?.email ?? '').trim().toLowerCase()}`, standardHeaders: true, legacyHeaders: false, message: accountLimitMessage }),
