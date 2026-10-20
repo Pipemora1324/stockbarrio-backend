@@ -100,11 +100,12 @@ export const storeRepository = {
         [id, input.name ?? null, input.neighborhood ?? null, input.address ?? null, input.phone ?? null],
       )
     ).rows[0],
-  // Soft delete: the store and its products stop showing, but no row is erased (it can be recovered by hand).
+  // Soft delete: the store and all its products stop showing, but no row is erased (it can be recovered by hand).
   // Its pending suggestions are closed and the seller's main store moves to the next one, or to none.
   deactivate: (id: string, userId: string) =>
     database.withTransaction(async (client: PoolClient) => {
       await client.query('UPDATE stores SET active = false WHERE id = $1', [id]);
+      await client.query('UPDATE products SET active = false WHERE store_id = $1 AND active = true', [id]);
       await client.query(`UPDATE discount_suggestions SET status = 'expired', decided_at = CURRENT_TIMESTAMP WHERE store_id = $1 AND status = 'pending'`, [id]);
       await client.query(
         `UPDATE users SET store_id = (SELECT s.id FROM stores s WHERE s.user_id = $2 AND s.active = true ORDER BY s.created_at ASC, s.id ASC LIMIT 1)
