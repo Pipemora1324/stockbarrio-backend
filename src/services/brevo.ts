@@ -35,13 +35,19 @@ export const brevoProblems = () => [
   ...(parseSender(config.mailFrom) ? [] : ['MAIL_FROM debe tener el remitente verificado en Brevo, por ejemplo "StockBarrio <avisos@tu-dominio.com>"']),
 ];
 
+// A regular timer instead of AbortSignal.timeout: in Node 20 that one does not keep the process alive, so a
+// script like `npm run mail:test` could end silently while Brevo is still not answering.
 const request = async (url: string, init: RequestInit) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('Brevo no respondió a tiempo.', 'TimeoutError')), config.mailTimeoutMs);
   try {
-    return await fetch(url, { ...init, signal: AbortSignal.timeout(config.mailTimeoutMs) });
+    return await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
-    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) throw new BrevoError('timeout');
+    if (controller.signal.aborted || (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'))) throw new BrevoError('timeout');
     const code = (error as { cause?: { code?: unknown } }).cause?.code;
     throw new BrevoError('network', null, typeof code === 'string' ? code : '');
+  } finally {
+    clearTimeout(timer);
   }
 };
 
