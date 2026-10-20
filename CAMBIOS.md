@@ -332,3 +332,29 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
 - **Variables nuevas:** ninguna.
 - **Migraciones:** ninguna.
 - **Cómo probar:** con el seed, pide en el chat "pollo asado cerca" (pide el barrio) y "pollo asado cerca en Suba" (solo Suba). `POST /api/offers/search` con `{ "sort": "nearest" }` responde 400.
+
+## Recuperación de contraseña por correo (rama `correo`)
+
+- **Buscar la cuenta:** se busca por el correo con el que se creó, sin importar mayúsculas ni espacios. Antes, una cuenta antigua guardada con mayúsculas no se encontraba.
+- **SMTP:**
+  - variables nuevas `SMTP_SECURE` (true con el 465; false con el 587, con STARTTLS obligatorio) y `SMTP_TIMEOUT_MS` (10 s para conectar y para enviar);
+  - `MAIL_FROM` vacío usa `SMTP_USER`, y si el proveedor reescribe el remitente el correo sale igual;
+  - a la contraseña de aplicación de Gmail se le quitan los espacios;
+  - funciona con Gmail y con Brevo.
+- **Plantillas en español** en texto y HTML: enlace armado solo con `APP_URL`, aviso de que vence en 30 minutos y "Si no fuiste tú, ignora este mensaje". Después de restablecer la contraseña, o de cambiarla desde el perfil, llega "Tu contraseña de StockBarrio fue cambiada".
+- **Errores y registros:**
+  - si el SMTP falla, la API responde lo mismo y el registro solo dice el tipo de error, sin el correo de la persona, el enlace, el token ni la contraseña;
+  - en producción nunca se imprimen enlaces;
+  - en producción sin `APP_URL`, la API responde que el correo no está configurado en vez de mandar enlaces a `localhost`, y avisa al arrancar.
+- **Script `npm run mail:test -- tucorreo@ejemplo.com`:** verifica la conexión, envía un correo de prueba y explica el error sin imprimir la contraseña. En Render se corre con `node dist/mail-test.js tucorreo@ejemplo.com`.
+- **Seguridad, sin cambios y comprobada con pruebas:**
+  - token de un solo uso con hash, que vence en 30 minutos;
+  - solo vale el enlace más nuevo, y un token de otro tipo no sirve;
+  - límites por IP y por correo;
+  - las sesiones se cierran al cambiar la contraseña;
+  - el enlace no usa el host de la petición.
+- **Pruebas:** 190 en verde (97,8 % de líneas, 88,7 % de ramas). Todas usan un transporte simulado: ninguna envía correos reales.
+- **Documentación:** guía paso a paso para Gmail y Brevo en el README y en `.env.example`.
+- **Migraciones:** ninguna.
+- **Variables:** `SMTP_SECURE` y `SMTP_TIMEOUT_MS` son nuevas y opcionales. Para que el correo funcione en Render hacen falta `APP_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `MAIL_FROM`.
+- **Cómo probar:** pon las variables, corre `npm run mail:test -- tucorreo@ejemplo.com` y luego pide un enlace desde "¿Olvidaste tu contraseña?" con el correo de tu cuenta.
