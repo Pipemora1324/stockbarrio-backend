@@ -37,6 +37,10 @@ export const smtpOptions = () => ({
 
 let transporter: Transporter | null = null;
 const smtpTransporter = () => (transporter ??= nodemailer.createTransport(smtpOptions()));
+// Lets tests build a new connection with a different configuration.
+export const resetSmtpTransport = () => {
+  transporter = null;
+};
 
 const smtpTransport: MailTransport = async (message) => {
   await smtpTransporter().sendMail({ from: senderAddress(), to: message.to, subject: message.subject, text: message.text, html: message.html });

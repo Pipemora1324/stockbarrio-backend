@@ -5,7 +5,7 @@ import { config } from '../src/config.js';
 import { AppError } from '../src/errors.js';
 import { runMailTest } from '../src/mail-test.js';
 import { passwordChangedMail, passwordResetMail } from '../src/services/mail-templates.js';
-import { canSendMail, describeMailError, mailErrorHint, senderAddress, sendMail, smtpOptions, smtpPassword, useMailTransport } from '../src/services/mailer.js';
+import { canSendMail, describeMailError, mailErrorHint, resetSmtpTransport, senderAddress, sendMail, smtpOptions, smtpPassword, useMailTransport } from '../src/services/mailer.js';
 
 const message = { to: 'ana@correo.co', subject: 'Prueba', text: 'Hola' };
 const smtpError = (code: string, responseCode?: number, text = 'fallo') => Object.assign(new Error(text), { code, responseCode, command: 'AUTH PLAIN' });
@@ -134,6 +134,7 @@ describe('npm run mail:test', () => {
   afterEach(() => {
     Object.assign(config, original);
     mock.restoreAll();
+    resetSmtpTransport();
   });
   const capture = () => {
     const lines: string[] = [];
@@ -150,8 +151,29 @@ describe('npm run mail:test', () => {
     assert.match(second.lines[0], /SMTP_HOST no está definido/);
   });
 
+  it('verifies the login and sends one test message with the current configuration', async () => {
+    Object.assign(config, { smtpHost: 'smtp.gmail.com', smtpPort: 465, smtpSecure: true, smtpUser: 'tienda@gmail.com', smtpPass: 'abcd efgh ijkl mnop', mailFrom: '', appUrl: 'https://stockbarrio.app' });
+    const sent: Array<Record<string, string>> = [];
+    let verified = 0;
+    mock.method(nodemailer, 'createTransport', (options: { auth: { pass: string } }) => {
+      assert.equal(options.auth.pass, 'abcdefghijklmnop');
+      return { verify: async () => verified++, sendMail: async (mail: Record<string, string>) => sent.push(mail) };
+    });
+    const { lines, log } = capture();
+    assert.equal(await runMailTest('ana@correo.co', log), 0);
+    assert.equal(verified, 1);
+    assert.deepEqual([sent[0].to, sent[0].from, sent[0].subject], ['ana@correo.co', 'StockBarrio <tienda@gmail.com>', 'Correo de prueba de StockBarrio']);
+    assert.match(sent[0].text, /https:\/\/stockbarrio\.app/);
+    const output = lines.join('\n');
+    assert.match(output, /smtp\.gmail\.com:465 \(TLS directo\)/);
+    assert.match(output, /Listo: se envió un correo de prueba a ana@correo\.co/);
+    assert.doesNotMatch(output, /abcd|mnop/);
+  });
+
   it('shows a clear error without printing the password', async () => {
     Object.assign(config, { smtpHost: '127.0.0.1', smtpPort: 1, smtpSecure: false, smtpUser: 'tienda@gmail.com', smtpPass: 'clave-super-secreta', smtpTimeoutMs: 2000 });
+    const unreachable = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1 clave-super-secreta'), { code: 'ESOCKET', command: 'CONN' });
+    mock.method(nodemailer, 'createTransport', () => ({ verify: async () => { throw unreachable; } }));
     const { lines, log } = capture();
     assert.equal(await runMailTest('ana@correo.co', log), 1);
     const output = lines.join('\n');
