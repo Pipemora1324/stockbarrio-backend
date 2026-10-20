@@ -171,7 +171,7 @@ describe('npm run mail:test', () => {
   });
 
   it('shows a clear error without printing the password', async () => {
-    Object.assign(config, { smtpHost: '127.0.0.1', smtpPort: 1, smtpSecure: false, smtpUser: 'tienda@gmail.com', smtpPass: 'clave-super-secreta', smtpTimeoutMs: 2000 });
+    Object.assign(config, { smtpHost: '127.0.0.1', smtpPort: 1, smtpSecure: false, smtpUser: 'tienda@gmail.com', smtpPass: 'clave-super-secreta', mailTimeoutMs: 2000 });
     const unreachable = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1 clave-super-secreta'), { code: 'ESOCKET', command: 'CONN' });
     mock.method(nodemailer, 'createTransport', () => ({ verify: async () => { throw unreachable; } }));
     const { lines, log } = capture();
