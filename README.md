@@ -83,7 +83,9 @@ Levanta PostgreSQL (puerto 5432) y la API (puerto 3000). Puedes sobrescribir `JW
 | `CHAT_RATE_PER_MINUTE` / `CHAT_RATE_PER_DAY` | Límite de mensajes del chat por IP y por usuario | `10` / `100` |
 | `APP_URL` | URL pública del frontend, para los enlaces de los correos | `http://localhost:4200` |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | Envío de correos. `SMTP_SECURE` es `true` con el puerto 465 y `false` con el 587 (STARTTLS); vacío, se deduce del puerto. `MAIL_FROM` vacío usa `SMTP_USER`. Ver [Configurar el correo](#configurar-el-correo) | vacío / `587` / según el puerto |
-| `SMTP_TIMEOUT_MS` | Límite para conectar y para enviar un correo | `10000` |
+| `MAIL_PROVIDER` | Cómo se envían los correos: `smtp` (por defecto) o `brevo-api` (API HTTPS de Brevo, para Render Free). Ver [Configurar el correo](#configurar-el-correo) | `smtp` |
+| `BREVO_API_KEY` | API key de Brevo, solo con `MAIL_PROVIDER=brevo-api` | vacío |
+| `MAIL_TIMEOUT_MS` | Límite para conectar y para enviar un correo, con los dos transportes (también se acepta `SMTP_TIMEOUT_MS`) | `10000` |
 
 Variables solo para uso local (no hacen falta en el despliegue):
 
@@ -260,13 +262,39 @@ Salvaguardas:
 
 ### Configurar el correo
 
-Las variables van en Render (Environment) o en tu `.env` local. Después de ponerlas, prueba con:
+Hay dos formas de enviar, según `MAIL_PROVIDER`:
+
+- **`smtp`** (por defecto, o sin la variable): nodemailer contra un servidor SMTP como Gmail o Brevo. Sirve en desarrollo y en hostings que permiten los puertos SMTP.
+- **`brevo-api`**: la API HTTPS de Brevo (`POST https://api.brevo.com/v3/smtp/email` con la cabecera `api-key`), por el puerto 443.
+
+> **Render Free bloquea el tráfico saliente a los puertos SMTP 25, 465 y 587.** Desde ahí el SMTP siempre termina en tiempo de espera agotado (`ETIMEDOUT`), sea Gmail o Brevo. En Render Free usa `MAIL_PROVIDER=brevo-api`.
+
+Los dos transportes envían los mismos correos: las mismas plantillas en español, en texto y HTML, con el mismo límite de 10 s. También tienen el mismo contrato: si el envío falla, la API responde igual y el registro solo dice el tipo de error (por ejemplo `Brevo 401` o `ETIMEDOUT`), nunca la clave, el correo de la persona, el enlace ni el token. Si falta configuración, la API avisa al arrancar y responde "correo no configurado" sin dejar de funcionar.
+
+Después de poner las variables, prueba con:
 
 ```bash
 npm run mail:test -- tucorreo@ejemplo.com
 ```
 
-El script muestra el servidor, el usuario, si la contraseña está definida (nunca la imprime) y el remitente. Luego verifica la conexión y envía un correo de prueba. Si falla, explica qué revisar. En Render se corre desde la pestaña Shell con `node dist/mail-test.js tucorreo@ejemplo.com`.
+El script muestra el transporte, el servidor o la API, si la contraseña o la API key están definidas (nunca las imprime) y el remitente. Luego verifica la conexión o la API key, envía un correo de prueba y, si algo falla, explica qué revisar. En Render se corre desde la pestaña Shell con `node dist/mail-test.js tucorreo@ejemplo.com`.
+
+#### Brevo por API (recomendado en Render Free)
+
+1. Crea una cuenta gratuita en https://www.brevo.com (300 correos al día). Confirma tu correo y completa los datos de la cuenta que pide Brevo; sin eso no activa los envíos.
+2. **Verifica el remitente.** En **Senders, Domains & Dedicated IPs > Senders**, pulsa **Add a sender**, escribe el nombre ("StockBarrio") y el correo que aparecerá como remitente, y abre el enlace de confirmación que te llega a ese correo. Brevo rechaza con un 400 cualquier remitente sin verificar.
+3. **Crea la API key.** En **SMTP & API > API Keys** pulsa **Generate a new API key**, ponle un nombre ("StockBarrio Render") y copia la clave, que empieza por `xkeysib-`. Brevo solo la muestra una vez. No uses la "clave SMTP": esa es para `MAIL_PROVIDER=smtp`.
+4. Si en **Security > Authorized IPs** está activado el bloqueo por IP, desactívalo o agrega las IP de salida de Render. Si no, Brevo responde 401 aunque la clave esté bien.
+5. Pon estas variables en Render:
+
+   | Variable | Valor |
+   | --- | --- |
+   | `MAIL_PROVIDER` | `brevo-api` |
+   | `BREVO_API_KEY` | la clave `xkeysib-…` |
+   | `MAIL_FROM` | `StockBarrio <el remitente que verificaste>` |
+   | `APP_URL` | la URL de Vercel, sin `/` al final |
+
+   Con `brevo-api` no se usan `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER` ni `SMTP_PASS`, así que puedes borrarlas o dejarlas.
 
 #### Gmail
 
@@ -288,7 +316,7 @@ El script muestra el servidor, el usuario, si la contraseña está definida (nun
    También sirve el puerto `587` con `SMTP_SECURE=false`: la conexión pasa a cifrada con STARTTLS antes de iniciar sesión y, si no puede, no envía nada.
 5. Gmail envía siempre desde la cuenta autenticada. Si `MAIL_FROM` tiene otra dirección, Gmail la reemplaza y el correo sale igual. El límite gratuito es de unos 500 correos al día.
 
-#### Brevo
+#### Brevo por SMTP
 
 1. Crea una cuenta gratuita en https://www.brevo.com (300 correos al día).
 2. En **Senders, Domains & Dedicated IPs > Senders**, agrega el correo que aparecerá como remitente y confírmalo desde el enlace que te llega. Brevo rechaza remitentes sin verificar.
@@ -306,6 +334,11 @@ El script muestra el servidor, el usuario, si la contraseña está definida (nun
    | `APP_URL` | la URL de Vercel |
 
 #### Si no llega
+
+- `Brevo 401`: la API key no es válida o Brevo bloquea la IP del servidor (Security > Authorized IPs).
+- `Brevo 400`: casi siempre el remitente no está verificado. `MAIL_FROM` debe ser exactamente un remitente de la lista Senders.
+- `Brevo · tiempo de espera agotado` o `Brevo · sin conexión`: el servidor no llegó a `api.brevo.com`; vuelve a intentar.
+- `ETIMEDOUT` con SMTP desde Render Free: son los puertos bloqueados. Cambia a `MAIL_PROVIDER=brevo-api`.
 
 - `EAUTH` o `SMTP 535`: usuario o contraseña. En Gmail tiene que ser la contraseña de aplicación; en Brevo, el login y la clave SMTP (no los de entrar a la web).
 - `ETIMEDOUT`, `ESOCKET` o `ECONNECTION`: no conecta. Revisa el host, y que `SMTP_SECURE` sea `true` con el 465 o `false` con el 587.
