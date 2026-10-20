@@ -14,7 +14,9 @@ export interface UserRecord {
 const userColumns = 'id, name, email, password_hash AS "passwordHash", role, store_id AS "storeId", token_version AS "tokenVersion", created_at AS "createdAt"';
 
 export const userRepository = {
-  getByEmail: async (email: string) => (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE email = $1`, [email.toLowerCase()])).rows[0],
+  // Ignores letter case and spaces, so accounts saved before emails were normalized are still found.
+  getByEmail: async (email: string) =>
+    (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE lower(trim(email)) = $1 ORDER BY created_at LIMIT 1`, [email.trim().toLowerCase()])).rows[0],
   getById: async (id: string) => (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE id = $1`, [id])).rows[0],
   create: async (user: Omit<UserRecord, 'id' | 'createdAt' | 'tokenVersion'>) => {
     const id = crypto.randomUUID();

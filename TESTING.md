@@ -2,6 +2,8 @@
 
 Las pruebas usan el runner nativo de Node (`node:test`) con `tsx`, y la cobertura se mide con `c8`. Corren en serie (`--test-concurrency=1`) porque los archivos de integración comparten la misma base de pruebas.
 
+Las pruebas de correo nunca envían correos reales: usan un transporte simulado (`useMailTransport`), un nodemailer simulado o un `fetch` simulado para Brevo. `test/setup.ts` vacía `SMTP_HOST`, `MAIL_PROVIDER` y `BREVO_API_KEY`, y bloquea cualquier `fetch` fuera de localhost.
+
 ## Comandos
 
 | Comando | Qué hace |
@@ -45,7 +47,7 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 | --- | --- | --- |
 | `database-guard.test.ts` | Unitaria | Rechazo de URLs de Supabase, nombres `_test`, claves vacías y bloqueo de red |
 | `auth.test.ts` | Integración | Login (mayúsculas, contraseña o correo errados con el mismo mensaje, hash roto), registro sin elegir rol ni repetir correo o tienda, JWT vencido o firmado con otro secreto, `token_version`, cuentas borradas, tokens antiguos sin `tv`, 403 por rol y tienda sin registro |
-| `account.test.ts` | Integración | Recuperación de contraseña (respuesta genérica, hash del token, un solo uso, vencimiento, solo el enlace más nuevo), cambio de contraseña y de correo (confirmación, correo ocupado, cierre de sesiones), tokens de un tipo usados en el otro, límites por IP y por correo, 503 sin SMTP en producción |
+| `account.test.ts` | Integración | Flujo completo de recuperación (enlace con `APP_URL` en texto y HTML, 30 minutos, nueva contraseña, aviso de contraseña cambiada, sesiones cerradas), fallo de SMTP con la misma respuesta y sin datos en el registro, enlace armado sin el host de la petición, cuenta antigua guardada con mayúsculas, producción sin `APP_URL`, respuesta genérica, hash del token, un solo uso, vencimiento, solo el enlace más nuevo, cambio de contraseña y de correo, tokens de un tipo usados en el otro, límites por IP y por correo, 503 sin SMTP en producción |
 | `api.test.ts` | Integración | Migraciones (no se repiten, RLS en todas las tablas, rollback completo de una migración fallida, todas aditivas), propiedad de productos (403), fechas ISO antiguas, filtros |
 | `stores.test.ts` | Integración | Tiendas por barrio y nombre, 404, la tienda solo como texto (ninguna respuesta trae coordenadas y ya no hay ruta para guardarlas), productos públicos, borrado, edición con fecha pasada y categoría antigua, stock en 0, JSON roto, rutas inexistentes, error 500 sin detalles |
 | `validation.test.ts` | Unitaria e integración | Reglas de nombres, teléfonos, correos, contraseñas, productos, categorías y fechas, con mensajes en español |
@@ -57,20 +59,19 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 | `offers.test.ts` | Integración | Solo productos con descuento y stock, filtros, orden por vencimiento, ya no hay orden por cercanía ni distancias, una oferta dura hasta el final de su día |
 | `notifications.test.ts` | Unitaria e integración | Alertas y notificaciones por barrio, sin ubicación; las alertas antiguas por radio no avisan (pausadas con `ENABLE_ALERTS`; la suite las enciende para probarlas) |
 | `dates.test.ts` | Unitaria | Cambio de día en Bogotá, bisiestos |
-| `mailer.test.ts` | Unitaria | SMTP (remitente, puerto seguro, una sola conexión), consola en desarrollo, 503 en producción sin SMTP |
+| `mailer.test.ts` | Unitaria | SMTP con TLS en el 465 y STARTTLS obligatorio en el 587, timeouts de 10 s, contraseña de aplicación de Gmail sin espacios, remitente por defecto, texto y HTML, errores descritos sin claves, enlaces ni tokens, pistas para Gmail y Brevo, plantillas en español, `mail:test` sin imprimir la contraseña; consola en desarrollo y 503 en producción sin SMTP |
+| `brevo.test.ts` | Unitaria e integración | API HTTPS de Brevo con `fetch` simulado: envío con la cabecera `api-key` y las mismas plantillas, 401 (clave), 400 (remitente no verificado), tiempo agotado y red caída descritos sin la clave ni datos de la persona, "correo no configurado" sin `BREVO_API_KEY` o `MAIL_FROM`, `mail:test` con Brevo, recuperación completa por la API y misma respuesta si Brevo falla |
 | `product-filters.test.ts` | Unitaria | Filtros SQL con los placeholders correctos |
 
 ## Resultado actual
 
-174 pruebas, todas en verde (unos 40 s con la base de pruebas local).
+203 pruebas, todas en verde con Node 20 y Node 24 (unos 40 s con la base de pruebas local).
 
-| Métrica | Ronda de pruebas | Ahora (tras simplificar) |
+| Métrica | Correo por SMTP | Ahora (con Brevo por API) |
 | --- | --- | --- |
-| Líneas | 98,0 % | 97,8 % |
-| Ramas | 89,8 % | 88,8 % |
+| Líneas | 97,8 % | 97,8 % |
+| Ramas | 88,7 % | 88,3 % |
 | Funciones | 100 % | 100 % |
-
-La cobertura baja un poco porque se borraron módulos que estaban al 100 % (distancias y combos); lo que queda está igual de probado.
 
 Lo que queda sin cubrir es sobre todo:
 

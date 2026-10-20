@@ -12,6 +12,8 @@ Object.assign(process.env, {
   OPENAI_API_KEY: '',
   AI_FALLBACK_API_KEY: '',
   SMTP_HOST: '',
+  MAIL_PROVIDER: '',
+  BREVO_API_KEY: '',
   ENABLE_ALERTS: 'false',
 });
 

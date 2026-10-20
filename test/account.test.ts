@@ -1,7 +1,8 @@
 import { integrationSkip, useTestApi } from './helpers/api.js';
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { config } from '../src/config.js';
+import { hashPassword } from '../src/services/auth.js';
 import { useMailTransport, type MailMessage } from '../src/services/mailer.js';
 
 describe('account API', { skip: integrationSkip }, () => {
@@ -208,5 +209,95 @@ describe('account API', { skip: integrationSkip }, () => {
       statuses.push((await call('POST', '/api/auth/forgot-password', { email: attempt % 2 ? 'Inundada@stockbarrio.test' : ' inundada@StockBarrio.test' })).status);
     }
     assert.deepEqual(statuses, [200, 200, 200, 429]);
+  });
+
+  const waitForMails = async (count: number) => {
+    for (let attempt = 0; attempt < 100 && outbox.length < count; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+    return outbox;
+  };
+
+  it('runs the whole recovery: link from APP_URL in text and HTML, new password, notice and closed sessions', async () => {
+    config.appUrl = 'https://stockbarrio.app';
+    const { email, token: oldSession } = await registerCustomer('completo');
+    const answer = await call('POST', '/api/auth/forgot-password', { email: email.toUpperCase() });
+    assert.equal(answer.status, 200);
+    const [resetMail] = await waitForMails(1);
+    assert.equal(resetMail.to, email);
+    assert.match(resetMail.text, /https:\/\/stockbarrio\.app\/reset-password\?token=[\w-]{40,}/);
+    assert.match(resetMail.html!, /href="https:\/\/stockbarrio\.app\/reset-password\?token=[\w-]{40,}"/);
+    assert.match(resetMail.text, /vence en 30 minutos/);
+    assert.match(resetMail.text, /Si no fuiste tú, ignora este mensaje/);
+
+    const reset = await call('POST', '/api/auth/reset-password', { token: linkToken(resetMail), password: 'NuevaClave2026' });
+    assert.equal(reset.status, 200);
+    const [, notice] = await waitForMails(2);
+    assert.equal(notice.to, email);
+    assert.equal(notice.subject, 'Tu contraseña de StockBarrio fue cambiada');
+    assert.match(notice.text, /https:\/\/stockbarrio\.app\/login/);
+    assert.doesNotMatch(notice.text, /token=/, 'the notice has no reset link');
+
+    assert.equal((await call('GET', '/api/auth/me', undefined, oldSession)).status, 401);
+    assert.equal((await call('POST', '/api/auth/login', { email, password: 'cliente12345' })).status, 401);
+    assert.equal((await call('POST', '/api/auth/login', { email, password: 'NuevaClave2026' })).status, 200);
+  });
+
+  it('answers the same when SMTP fails and logs no address, link, token or password', async () => {
+    config.smtpPass = 'clave-smtp-secreta';
+    const { email } = await registerCustomer('smtp-caido');
+    let attempted = '';
+    useMailTransport(async (message) => {
+      attempted = message.text;
+      throw Object.assign(new Error(`Greeting never received for ${message.text} with clave-smtp-secreta`), { code: 'ETIMEDOUT', command: 'CONN' });
+    });
+    const errors = mock.method(console, 'error', () => {});
+    const known = await call('POST', '/api/auth/forgot-password', { email });
+    const unknown = await call('POST', '/api/auth/forgot-password', { email: 'nadie.smtp@stockbarrio.test' });
+    assert.deepEqual([known.status, unknown.status], [200, 200]);
+    assert.equal(known.body.message, unknown.body.message);
+    for (let attempt = 0; attempt < 100 && !errors.mock.callCount(); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+    const logged = errors.mock.calls.map((entry) => entry.arguments.join(' ')).join('\n');
+    assert.match(logged, /No se pudo enviar el correo de recuperación de contraseña: ETIMEDOUT/);
+    const token = /token=([\w-]+)/.exec(attempted)![1];
+    for (const secret of [token, 'reset-password', email, 'clave-smtp-secreta']) assert.equal(logged.includes(secret), false, secret);
+  });
+
+  it('builds the link only from APP_URL, never from the host of the request', async () => {
+    config.appUrl = 'https://stockbarrio.app';
+    const { email } = await registerCustomer('host');
+    const response = await fetch(`${context.baseUrl}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Host: 'atacante.example', 'X-Forwarded-Host': 'atacante.example', 'X-Forwarded-Proto': 'http', Origin: 'https://atacante.example' },
+      body: JSON.stringify({ email }),
+    });
+    assert.equal(response.status, 200);
+    const [mail] = await waitForMails(1);
+    assert.match(mail.text, /https:\/\/stockbarrio\.app\/reset-password\?token=/);
+    assert.equal(mail.text.includes('atacante'), false);
+    assert.equal(mail.html!.includes('atacante'), false);
+  });
+
+  it('finds an older account saved with capital letters by the email it was created with', async () => {
+    await context.pool.query(`INSERT INTO users (name, email, password_hash, role) VALUES ('Cuenta Vieja', 'Cuenta.Vieja@StockBarrio.test', $1, 'customer')`, [await hashPassword('vieja12345')]);
+    await call('POST', '/api/auth/forgot-password', { email: 'cuenta.vieja@stockbarrio.test' });
+    const [mail] = await waitForMails(1);
+    assert.equal(mail.to, 'Cuenta.Vieja@StockBarrio.test');
+    assert.equal((await call('POST', '/api/auth/reset-password', { token: linkToken(mail), password: 'NuevaVieja2026' })).status, 200);
+    assert.equal((await call('POST', '/api/auth/login', { email: ' CUENTA.vieja@stockbarrio.test ', password: 'NuevaVieja2026' })).status, 200);
+  });
+
+  it('tells that email is not configured in production without APP_URL, instead of mailing links to localhost', async () => {
+    Object.assign(config, { nodeEnv: 'production', appUrlConfigured: false });
+    const { email } = await registerCustomer('sin-app-url');
+    const result = await call('POST', '/api/auth/forgot-password', { email });
+    assert.equal(result.status, 503);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(outbox.length, 0);
+  });
+
+  it('also warns by email when the password is changed from the profile', async () => {
+    const { token, email } = await registerCustomer('aviso-perfil');
+    await call('POST', '/api/account/password', { currentPassword: 'cliente12345', newPassword: 'nuevaClave2026' }, token);
+    const [mail] = await waitForMails(1);
+    assert.deepEqual([mail.to, mail.subject], [email, 'Tu contraseña de StockBarrio fue cambiada']);
   });
 });
