@@ -4,7 +4,7 @@ import { todayInBogota } from '../dates.js';
 import { formatCop } from '../format.js';
 import { storeRepository } from '../repositories/store.js';
 import { canonicalCategory, maxPrice, productCategories } from '../validation.js';
-import { askNeighborhood, buildReply, findResults, withChosenNeighborhood, type AssistantResult } from './assistant.js';
+import { askNeighborhood, askNeighborhoodForStores, buildReply, findResults, listInSpanish, storesQuestionStart, withChosenNeighborhood, type AssistantResult } from './assistant.js';
 import { TtlCache } from './cache.js';
 import { normalizeText } from './discount-rules.js';
 import { estimatePromptTokens, estimateTokens, isLlmEnabled, requestChatJson, type ChatTurn } from './llm.js';
@@ -20,8 +20,18 @@ export interface ChatQuery {
   messages: ChatMessage[];
   // Who asks (user id, or IP for visitors): used for the per-person AI limits. Never sent to the provider.
   requester?: string;
-  // Chosen by the customer: filters the search when the message does not name a neighborhood.
+  // Neighborhood the customer gave earlier in this conversation (the app keeps it in memory only).
+  // It filters the search when the message does not name one.
   neighborhood?: string;
+}
+
+// Store card shown by the chat when the customer asks for nearby stores.
+export interface ChatStore {
+  id: string;
+  name: string;
+  neighborhood: string;
+  address: string;
+  offerCount: number;
 }
 
 // rules: answered on purpose without the model (clear match); ai: the model helped;
@@ -225,6 +235,9 @@ const greetingReply = '¡Hola! Soy el asistente de StockBarrio. Dime qué buscas
 const offTopicReply = 'Solo puedo ayudarte con productos, precios y ofertas de las tiendas de StockBarrio. ¿Qué producto buscas?';
 
 const noResultsReply = async (intent: ChatIntent) => {
+  if (intent.preference === 'best_deal' && !intent.terms.length) {
+    return `Hoy no hay ofertas activas${intent.neighborhood ? ` en ${intent.neighborhood}` : ''}. Revisa el catálogo para ver todos los productos de las tiendas.`;
+  }
   const what = intent.product ? `«${intent.product}»` : 'productos con esas condiciones';
   const where = intent.neighborhood ? ` en ${intent.neighborhood}` : '';
   const budget = intent.budget ? ` por ${formatCop(intent.budget)} o menos` : '';
@@ -260,17 +273,57 @@ const cacheKey = (query: ChatQuery) =>
     neighborhood: query.neighborhood ? normalizeText(query.neighborhood) : null,
   });
 
+// "¿Qué tiendas hay cerca?", "tiendas cercanas", "locales en mi barrio"...
+const storesPattern = /\b(tiendas?|locales?|negocios?|graneros?|supermercados?|minimercados?)\b/;
+export const asksForStores = (text: string) => storesPattern.test(normalizeText(text));
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+// Stores of a neighborhood with their active offers of today (only real data from the database).
+const storesAnswer = async (neighborhood: string, today: string) => {
+  const stores = (await storeRepository.list(undefined, today)).filter((store) => normalizeText(store.neighborhood) === normalizeText(neighborhood));
+  if (!stores.length) return { reply: `Todavía no hay tiendas afiliadas en ${neighborhood}.`, stores: [] as ChatStore[], results: [] as AssistantResult[] };
+  const offers = (await findOffers({ neighborhood, sort: 'discount' }, today)).data.slice(0, maxChatResults);
+  const results: AssistantResult[] = offers.map((offer) => ({
+    productId: offer.productId,
+    name: offer.name,
+    category: offer.category,
+    price: offer.price,
+    offerPrice: offer.offerPrice,
+    discountPercent: offer.discountPercent,
+    stock: offer.stock,
+    expirationDate: offer.expirationDate,
+    daysToExpire: offer.daysToExpire,
+    store: offer.store,
+  }));
+  const names = stores.map((store) => (store.offerCount ? `${store.name} (${plural(store.offerCount, 'oferta', 'ofertas')} hoy)` : store.name));
+  const intro = `En ${neighborhood} hay ${plural(stores.length, 'tienda afiliada', 'tiendas afiliadas')}: ${listInSpanish(names, 8)}.`;
+  const tail = results.length ? ' Estas son sus ofertas activas de hoy.' : ' Hoy no tienen ofertas activas; en el catálogo ves todos sus productos.';
+  return {
+    reply: `${intro}${tail}`,
+    stores: stores.map((store) => ({ id: store.id, name: store.name, neighborhood: store.neighborhood, address: store.address, offerCount: store.offerCount })),
+    results,
+  };
+};
+
+const unknownNeighborhoodReply = (text: string, neighborhoods: string[]) => {
+  const list = listInSpanish(neighborhoods);
+  const shown = text.trim().replace(/[«»<>]/g, '').slice(0, 40);
+  return `No encontré tiendas afiliadas en «${shown}».${list ? ` Hay tiendas en ${list}.` : ' Todavía no hay tiendas afiliadas.'}`;
+};
+
 const isSearchable = (intent: ChatIntent) => Boolean(intent.terms.length || intent.category || intent.preference !== 'relevance');
 
 const answerChat = async (query: ChatQuery, today = todayInBogota()) => {
   const messages = query.messages.slice(-maxHistoryTurns);
   const lastQuestion = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
-  const [neighborhoods, stores] = await Promise.all([storeRepository.listNeighborhoods(), storeRepository.list()]);
-  const respond = (intent: ChatIntent, reply: string, mode: ChatMode, results: AssistantResult[] = []) => ({
+  const [neighborhoods, stores] = await Promise.all([storeRepository.listNeighborhoods(), storeRepository.list(undefined, today)]);
+  const respond = (intent: ChatIntent, reply: string, mode: ChatMode, results: AssistantResult[] = [], foundStores: ChatStore[] = []) => ({
     intent: { product: intent.product, terms: intent.terms, category: intent.category ?? null, preference: intent.preference, neighborhood: intent.neighborhood ?? null, budget: intent.budget ?? null },
     reply,
     mode,
     results,
+    stores: foundStores,
   });
   const search = (intent: ChatIntent) => findResults(intent, { category: intent.category, maxPrice: intent.budget, limit: maxChatResults }, today);
   const reply = (intent: ChatIntent, results: AssistantResult[]) => buildReply(intent, results, neighborhoods);
@@ -278,6 +331,21 @@ const answerChat = async (query: ChatQuery, today = todayInBogota()) => {
   // 1) Rules first: a greeting, "cerca de mí" without a neighborhood or a clear match is answered with a template, without calling the model.
   const local = withChosenNeighborhood(localIntent(messages, neighborhoods), query.neighborhood, neighborhoods);
   if (local.topic === 'greeting') return respond(local, greetingReply, 'rules');
+
+  // Nearby stores ("Tiendas cercanas"): without a neighborhood the bot asks for it, and the answer to that question
+  // (or a message with only a neighborhood) shows the stores there. The app remembers it for the rest of the chat.
+  const lastAssistant = messages.filter((message) => message.role === 'assistant').at(-1)?.content ?? '';
+  const awaitingNeighborhood = lastAssistant.startsWith(storesQuestionStart);
+  const namedNeighborhood = parseIntent(lastQuestion, neighborhoods).neighborhood;
+  const noProduct = !local.terms.length && !local.category;
+  if (awaitingNeighborhood && !namedNeighborhood && lastQuestion.trim().split(/\s+/).length <= 4 && !asksForStores(lastQuestion)) {
+    return respond({ ...local, neighborhood: undefined }, unknownNeighborhoodReply(lastQuestion, neighborhoods), 'rules');
+  }
+  if (noProduct && (asksForStores(lastQuestion) || awaitingNeighborhood || (namedNeighborhood && local.preference === 'relevance'))) {
+    if (!local.neighborhood) return respond(local, askNeighborhoodForStores(neighborhoods), 'rules');
+    const answer = await storesAnswer(local.neighborhood, today);
+    return respond(local, answer.reply, 'rules', answer.results, answer.stores);
+  }
   if (local.wantsNearby && !local.neighborhood && !isSearchable(local)) return respond(local, askNeighborhood(neighborhoods), 'rules');
   const localResults = isSearchable(local) ? await search(local) : [];
   if (localResults.length) return respond(local, reply(local, localResults), 'rules', localResults);

@@ -18,7 +18,7 @@ const preferencePhrases: Array<{ preference: Exclude<SearchPreference, 'relevanc
   { preference: 'best_deal', phrases: ['mejor oferta', 'mejores ofertas', 'mas descuento', 'mayor descuento', 'en oferta', 'ofertas', 'oferta', 'descuento', 'descuentos', 'rebaja', 'promocion'] },
   { preference: 'cheapest', phrases: ['mas barato', 'mas baratos', 'mas barata', 'mas baratas', 'baratos', 'baratas', 'barato', 'barata', 'economico', 'economicos', 'economica', 'menor precio', 'mejor precio'] },
 ];
-const nearbyPhrases = ['cerca de mi', 'cerca a mi', 'mas cerca', 'mas cercano', 'mas cercana', 'cercano', 'cercana', 'cerquita', 'cerca'];
+const nearbyPhrases = ['cerca de mi', 'cerca a mi', 'mas cerca', 'mas cercano', 'mas cercana', 'cercanos', 'cercanas', 'cercano', 'cercana', 'cerquita', 'cerca'];
 
 const stopWords = new Set([
   'busco', 'buscar', 'buscando', 'quiero', 'queria', 'necesito', 'me', 'gustaria', 'hay', 'tienen', 'tiene', 'venden', 'vende', 'donde', 'consigo', 'conseguir',
