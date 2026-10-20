@@ -1,4 +1,5 @@
 import { database } from '../database.js';
+import { canonicalEmail, canonicalEmailSql } from '../validation.js';
 
 export interface UserRecord {
   id: string;
@@ -17,6 +18,14 @@ export const userRepository = {
   // Ignores letter case and spaces, so accounts saved before emails were normalized are still found.
   getByEmail: async (email: string) =>
     (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE lower(trim(email)) = $1 ORDER BY created_at LIMIT 1`, [email.trim().toLowerCase()])).rows[0],
+  // Any account that uses the same mailbox (see canonicalEmail), the oldest first.
+  getByMailbox: async (email: string, exceptId?: string) =>
+    (
+      await database.query<UserRecord>(
+        `SELECT ${userColumns} FROM users WHERE ${canonicalEmailSql()} = $1 AND ($2::uuid IS NULL OR id <> $2::uuid) ORDER BY created_at LIMIT 1`,
+        [canonicalEmail(email), exceptId ?? null],
+      )
+    ).rows[0],
   getById: async (id: string) => (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE id = $1`, [id])).rows[0],
   getByAuthId: async (authId: string) => (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE auth_id = $1`, [authId])).rows[0],
   create: async (user: Omit<UserRecord, 'id' | 'createdAt' | 'tokenVersion'>) => {
