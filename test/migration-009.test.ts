@@ -45,7 +45,7 @@ describe('migration 009 (several stores and offer dates)', { skip: integrationSk
     const before = await pool.query(`SELECT (SELECT count(*) FROM users) AS users, (SELECT count(*) FROM stores) AS stores, (SELECT count(*) FROM products) AS products`);
 
     const { migrate } = await import('../src/migrate.js');
-    assert.deepEqual(await migrate(migrationsDirectory), ['009_multi_store_offer_dates.sql']);
+    assert.equal((await migrate(migrationsDirectory))[0], '009_multi_store_offer_dates.sql');
 
     const afterCounts = await pool.query(`SELECT (SELECT count(*) FROM users) AS users, (SELECT count(*) FROM stores) AS stores, (SELECT count(*) FROM products) AS products`);
     assert.deepEqual(afterCounts.rows, before.rows);

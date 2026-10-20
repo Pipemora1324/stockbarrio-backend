@@ -110,8 +110,41 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.equal((await call('GET', `/api/products/mine?storeId=${secondId}`, undefined, owner.token)).status, 403);
     const rows = await context.pool.query('SELECT active FROM stores WHERE id = $1', [secondId]);
     assert.deepEqual(rows.rows, [{ active: false }]);
-    const products = await context.pool.query('SELECT count(*)::int AS count FROM products WHERE store_id = $1', [secondId]);
-    assert.equal(products.rows[0].count, 1);
+    const products = await context.pool.query('SELECT active FROM products WHERE store_id = $1', [secondId]);
+    assert.deepEqual(products.rows, [{ active: false }], 'the product row stays, deactivated');
+  });
+
+  it('deactivates every product of a deleted store and hides them from every public query', async () => {
+    const seller = await registerStore('borra-productos', { storeName: 'Sede Vieja', neighborhood: 'Engativá' });
+    const second = (await call('POST', '/api/stores', { name: 'Sede Que Se Va', neighborhood: 'Engativá', address: 'Calle 8 # 7-6' }, seller.token)).body.data.id as string;
+    const base = { category: 'Lácteos', price: 8000, stock: 9, expirationDate: addDays(today, 2), storeId: second };
+    const offer = (await call('POST', '/api/products', { ...base, name: 'Kumis que se va', discountPercent: 30 }, seller.token)).body.data;
+    const plain = (await call('POST', '/api/products', { ...base, name: 'Queso que se va' }, seller.token)).body.data;
+    // Visible before deleting the store.
+    assert.ok((await call('POST', '/api/offers/search', {})).body.data.some((item: { name: string }) => item.name === 'Kumis que se va'));
+
+    assert.equal((await call('DELETE', `/api/stores/${second}`, undefined, seller.token)).status, 200);
+    const rows = await context.pool.query('SELECT name, active FROM products WHERE store_id = $1 ORDER BY name', [second]);
+    assert.deepEqual(rows.rows, [
+      { name: 'Kumis que se va', active: false },
+      { name: 'Queso que se va', active: false },
+    ]);
+    const names = (items: Array<{ name: string }>) => items.map((item) => item.name);
+    const gone = (list: string[]) => !list.some((name) => name.endsWith('que se va'));
+    assert.ok(gone(names((await call('POST', '/api/offers/search', {})).body.data)), 'ofertas');
+    assert.ok(gone(names((await call('GET', '/api/products')).body.data)), 'catálogo plano');
+    const catalog = (await call('GET', '/api/products/catalog')).body.data as Array<{ products: Array<{ name: string }> }>;
+    assert.ok(gone(catalog.flatMap((group) => names(group.products))), 'catálogo agrupado');
+    const chat = await call('POST', '/api/assistant/chat', { messages: [{ role: 'user', content: 'kumis' }] });
+    assert.ok(gone(names(chat.body.data.results)), 'chat');
+    const home = (await call('GET', '/api/stores')).body.data as Array<{ id: string }>;
+    assert.ok(!home.some((store) => store.id === second), 'inicio');
+    assert.equal((await call('GET', `/api/products/store/${second}`)).body.data.length, 0);
+    // Nor can its owner edit them, and they never come back as suggestions.
+    assert.equal((await call('PUT', `/api/products/${offer.id}`, { stock: 1 }, seller.token)).status, 404);
+    assert.equal((await call('DELETE', `/api/products/${plain.id}`, undefined, seller.token)).status, 404);
+    const suggestions = await call('GET', '/api/suggestions', undefined, seller.token);
+    assert.ok(gone(suggestions.body.data.map((item: { productName: string }) => item.productName)), 'sugerencias');
   });
 
   it('moves the main store when it is deleted, and works with no stores at all', async () => {
