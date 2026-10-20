@@ -18,7 +18,6 @@ Object.assign(process.env, {
   SUPABASE_URL: '',
   SUPABASE_JWKS_URL: '',
   SUPABASE_JWT_SECRET: '',
-  ENABLE_ALERTS: 'false',
 });
 
 const realFetch = globalThis.fetch;
