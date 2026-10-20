@@ -18,6 +18,7 @@ export const userRepository = {
   getByEmail: async (email: string) =>
     (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE lower(trim(email)) = $1 ORDER BY created_at LIMIT 1`, [email.trim().toLowerCase()])).rows[0],
   getById: async (id: string) => (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE id = $1`, [id])).rows[0],
+  getByAuthId: async (authId: string) => (await database.query<UserRecord>(`SELECT ${userColumns} FROM users WHERE auth_id = $1`, [authId])).rows[0],
   create: async (user: Omit<UserRecord, 'id' | 'createdAt' | 'tokenVersion'>) => {
     const id = crypto.randomUUID();
     const result = await database.query<UserRecord>(
