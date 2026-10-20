@@ -8,12 +8,21 @@ import { storeRepository } from '../repositories/store.js';
 import { suggestionRepository, type SuggestionValues } from '../repositories/suggestion.js';
 import { analyzeInventory, priceWithDiscount, type DiscountSuggestion } from './discount-rules.js';
 import { isLlmEnabled, requestJson } from './llm.js';
+import { offerStatus, resolveOfferRange } from './offer-rules.js';
 
 export interface AppliedDiscount {
   productId: string;
   storeId: string;
   discountPercent: number;
   offerPrice: number;
+  offerStartsOn: string;
+  offerEndsOn: string;
+}
+
+// Range chosen by the store when approving. Without dates: from today until the expiration date.
+export interface OfferRangeInput {
+  offerStartsOn?: string | null;
+  offerEndsOn?: string | null;
 }
 
 const aiReasonsSchema = z.object({
@@ -77,7 +86,9 @@ const sameNumbers = (stored: { suggestedPercent: number; daysToExpire: number } 
 export const refreshSuggestions = async (storeId: string, today = todayInBogota()) => {
   const products = await productRepository.listByStore(storeId);
   const byId = new Map(products.map((product) => [product.id, product]));
-  const local = analyzeInventory(products, today);
+  // The discount that counts is the one customers see now or will see (an offer that ended no longer counts).
+  const inventory = products.map((product) => ({ ...product, discountPercent: ['active', 'scheduled'].includes(offerStatus(product, today)) ? product.discountPercent : 0 }));
+  const local = analyzeInventory(inventory, today);
 
   // One AI call per store and per day, with all its suggestions in a single batch. The texts are saved, so later
   // visits that day reuse them; suggestions that appear later that day use the rule text.
@@ -111,23 +122,39 @@ export const refreshSuggestions = async (storeId: string, today = todayInBogota(
     const stale = [...pending.values()].filter((row) => !kept.has(row.productId)).map((row) => row.id);
     if (stale.length) await suggestionRepository.expire(client, stale);
   });
-  return suggestionRepository.listPending(storeId);
+  // The range the panel proposes when approving: from today until the expiration date (editable there).
+  return (await suggestionRepository.listPending(storeId)).map((suggestion) => ({ ...suggestion, proposedStartsOn: today, proposedEndsOn: suggestion.expirationDate }));
 };
 
-const applyDiscount = async (client: PoolClient, storeId: string, suggestion: { id: string; productId: string; suggestedPercent: number }): Promise<AppliedDiscount | null> => {
-  const product = await client.query<{ price: number; stock: number; active: boolean }>(
-    'SELECT price, stock, active FROM products WHERE id = $1 AND store_id = $2 FOR UPDATE',
+const applyDiscount = async (
+  client: PoolClient,
+  storeId: string,
+  suggestion: { id: string; productId: string; suggestedPercent: number },
+  range: OfferRangeInput,
+  today: string,
+): Promise<AppliedDiscount | null> => {
+  const product = await client.query<{ price: number; stock: number; active: boolean; expirationDate: string }>(
+    'SELECT price, stock, active, expiration_date AS "expirationDate" FROM products WHERE id = $1 AND store_id = $2 FOR UPDATE',
     [suggestion.productId, storeId],
   );
   const current = product.rows[0];
-  if (!current?.active || current.stock <= 0) {
+  if (!current?.active || current.stock <= 0 || current.expirationDate < today) {
     await suggestionRepository.setStatus(client, suggestion.id, 'expired');
     return null;
   }
-  const offerPrice = priceWithDiscount(Number(current.price), Number(suggestion.suggestedPercent));
-  await client.query('UPDATE products SET discount_percent = $2, offer_price = $3 WHERE id = $1', [suggestion.productId, suggestion.suggestedPercent, offerPrice]);
+  const discountPercent = Number(suggestion.suggestedPercent);
+  // Same rules as a manual offer: starts today or later, ends on or before the expiration date.
+  const dates = resolveOfferRange({ discountPercent, expirationDate: current.expirationDate, ...range }, today);
+  const offerPrice = priceWithDiscount(Number(current.price), discountPercent);
+  await client.query('UPDATE products SET discount_percent = $2, offer_price = $3, offer_starts_on = $4, offer_ends_on = $5 WHERE id = $1', [
+    suggestion.productId,
+    discountPercent,
+    offerPrice,
+    dates.offerStartsOn,
+    dates.offerEndsOn,
+  ]);
   await suggestionRepository.setStatus(client, suggestion.id, 'approved');
-  return { productId: suggestion.productId, storeId, discountPercent: Number(suggestion.suggestedPercent), offerPrice };
+  return { productId: suggestion.productId, storeId, discountPercent, offerPrice, offerStartsOn: dates.offerStartsOn!, offerEndsOn: dates.offerEndsOn! };
 };
 
 const assertPending = async (storeId: string, id: string) => {
@@ -136,22 +163,23 @@ const assertPending = async (storeId: string, id: string) => {
   if (suggestion.status !== 'pending') throw conflict('Esta sugerencia ya fue revisada.');
 };
 
-export const approveSuggestion = async (storeId: string, id: string): Promise<AppliedDiscount> => {
+export const approveSuggestion = async (storeId: string, id: string, range: OfferRangeInput = {}, today = todayInBogota()): Promise<AppliedDiscount> => {
   await assertPending(storeId, id);
   const applied = await database.withTransaction(async (client) => {
     const [suggestion] = await suggestionRepository.lockPending(client, storeId, id);
     if (!suggestion) throw conflict('Esta sugerencia ya fue revisada.');
-    return applyDiscount(client, storeId, suggestion);
+    return applyDiscount(client, storeId, suggestion, range, today);
   });
   if (!applied) throw conflict('El producto ya no está disponible, así que la sugerencia se descartó.');
   return applied;
 };
 
-export const approveAllSuggestions = async (storeId: string): Promise<AppliedDiscount[]> =>
+// Every pending suggestion with the default range of each product (today until its expiration date).
+export const approveAllSuggestions = async (storeId: string, today = todayInBogota()): Promise<AppliedDiscount[]> =>
   database.withTransaction(async (client) => {
     const applied: AppliedDiscount[] = [];
     for (const suggestion of await suggestionRepository.lockPending(client, storeId)) {
-      const result = await applyDiscount(client, storeId, suggestion);
+      const result = await applyDiscount(client, storeId, suggestion, {}, today);
       if (result) applied.push(result);
     }
     return applied;
