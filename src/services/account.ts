@@ -93,7 +93,7 @@ export const requestEmailChange = async (userId: string, newEmail: string, curre
   const user = await requireUser(userId);
   if (!(await verifyPassword(currentPassword, user.passwordHash))) throw badRequest('La contraseña actual no es correcta.');
   if (newEmail === user.email) throw badRequest('El correo nuevo es igual al actual.');
-  if (await userRepository.getByEmail(newEmail)) throw conflict('Ese correo ya está en uso en otra cuenta.');
+  if (await userRepository.getByMailbox(newEmail, userId)) throw conflict('Ese correo ya está en uso en otra cuenta.');
   const token = generateAccountToken();
   await accountTokenRepository.createEmailChange(userId, newEmail, hashAccountToken(token), config.accountTokenTtlMinutes);
   sendInBackground('confirmación de correo', { to: newEmail, ...emailChangeConfirmMail(user.name, accountLink('/confirm-email', token), config.accountTokenTtlMinutes) });

@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { authenticate, legacyAuthOnly, type AuthenticatedRequest } from '../middleware/auth.js';
 import { changePassword, confirmEmailChange, getProfile, requestEmailChange, toAuthUser, updateName } from '../services/account.js';
 import { userRepository } from '../repositories/user.js';
-import { emailSchema, passwordSchema, personNameSchema } from '../validation.js';
+import { newEmailSchema, passwordSchema, personNameSchema } from '../validation.js';
 
 const router = Router();
 const sensitiveLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste demasiados intentos. Espera unos minutos e inténtalo de nuevo.' } });
@@ -41,7 +41,7 @@ router.post('/password', legacyAuthOnly, authenticate, sensitiveLimit, async (re
 
 router.post('/email', legacyAuthOnly, authenticate, sensitiveLimit, async (request: AuthenticatedRequest, response, next) => {
   try {
-    const input = z.object({ newEmail: emailSchema, currentPassword: currentPasswordSchema }).parse(request.body);
+    const input = z.object({ newEmail: newEmailSchema, currentPassword: currentPasswordSchema }).parse(request.body);
     await requestEmailChange(request.user!.id, input.newEmail, input.currentPassword);
     response.json({ message: `Te enviamos un enlace a ${input.newEmail}. El correo cambiará cuando lo abras.` });
   } catch (error) {
