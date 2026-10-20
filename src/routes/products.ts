@@ -57,7 +57,7 @@ const getOwnedProduct = async (request: AuthenticatedRequest) => {
   return product;
 };
 
-// Flat list of the catalog (older clients). Products with an active offer are not here: they are in Ofertas.
+// Flat list of the catalog (older clients). Products with an active offer come with their discounted price.
 router.get('/', async (request, response, next) => {
   try {
     response.json({ data: await productRepository.list(catalogQuerySchema.parse(request.query), todayInBogota()) });

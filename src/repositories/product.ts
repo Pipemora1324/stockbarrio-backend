@@ -53,11 +53,11 @@ const parameters = (initial: unknown[] = []) => {
   return { params, add };
 };
 
-// Catalog conditions: products on sale that are not expired and have no active offer (those live in Ofertas).
+// Catalog conditions: every active, not expired product of an active store, with or without an offer.
 // $1 is always today's date.
 export const buildProductFilters = (filters: ProductFilters, today: string) => {
   const { params, add } = parameters([today]);
-  const conditions = ['p.active = true', 's.active = true', 'p.expiration_date >= $1::date', `NOT ${activeOfferSql('$1')}`];
+  const conditions = ['p.active = true', 's.active = true', 'p.expiration_date >= $1::date'];
   if (filters.neighborhood) conditions.push(`s.neighborhood ILIKE ${add(`%${filters.neighborhood}%`)}`);
   if (filters.category) conditions.push(`lower(p.category) = lower(${add(filters.category)})`);
   if (filters.search) {
@@ -102,7 +102,7 @@ export const productRepository = {
     );
     return result.rows;
   },
-  // Catalog: no active offers, grouped later by store (ordered here by store and product name).
+  // Catalog, grouped later by store (ordered here by store and product name). Offers show their price of today.
   list: async (filters: ProductFilters, today: string) => {
     const { where, params } = buildProductFilters(filters, today);
     const result = await database.query<CatalogRow>(
