@@ -103,11 +103,14 @@ export const verifyTransport = async () => {
   await smtpTransporter().verify();
 };
 
+// 10000 -> "10 s", 1500 -> "1,5 s".
+export const formatSeconds = (ms: number) => `${String(Number((ms / 1000).toFixed(1))).replace('.', ',')} s`;
+
 // A short description of a send failure for the logs: never the password, the links or the tokens.
 export const describeMailError = (error: unknown) => {
   if (error instanceof BrevoError) {
     if (error.failure === 'http') return `Brevo ${error.status}${error.detail ? ` · ${error.detail}` : ''}`;
-    if (error.failure === 'timeout') return `Brevo · tiempo de espera agotado (${Math.round(config.mailTimeoutMs / 1000)} s)`;
+    if (error.failure === 'timeout') return `Brevo · tiempo de espera agotado (${formatSeconds(config.mailTimeoutMs)})`;
     return `Brevo · sin conexión${error.detail ? ` (${error.detail})` : ''}`;
   }
   if (!(error instanceof Error)) return 'error desconocido';

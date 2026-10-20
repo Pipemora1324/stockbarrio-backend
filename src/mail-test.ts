@@ -1,15 +1,15 @@
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { testMail } from './services/mail-templates.js';
-import { canSendMail, describeMailError, describeSender, mailErrorHint, mailProvider, mailSetupProblems, sendMail, smtpOptions, verifyTransport } from './services/mailer.js';
+import { canSendMail, describeMailError, describeSender, formatSeconds, mailErrorHint, mailProvider, mailSetupProblems, sendMail, smtpOptions, verifyTransport } from './services/mailer.js';
 
 // The configuration in use, without any password or key.
 export const describeMailSetup = () => {
   const provider = mailProvider();
-  if (provider === 'brevo-api') return `Transporte: API HTTPS de Brevo · API key: ${config.brevoApiKey ? 'definida' : 'vacía'} · remitente: ${describeSender()} · límite: ${Math.round(config.mailTimeoutMs / 1000)} s`;
+  if (provider === 'brevo-api') return `Transporte: API HTTPS de Brevo · API key: ${config.brevoApiKey ? 'definida' : 'vacía'} · remitente: ${describeSender()} · límite: ${formatSeconds(config.mailTimeoutMs)}`;
   const options = smtpOptions();
   const security = options.secure ? 'TLS directo' : options.requireTLS ? 'STARTTLS obligatorio' : 'STARTTLS si el servidor lo ofrece';
-  return `Transporte: SMTP ${options.host}:${options.port} (${security}) · usuario: ${config.smtpUser || '(sin usuario)'} · contraseña: ${config.smtpPass ? 'definida' : 'vacía'} · remitente: ${describeSender()} · límite: ${Math.round(config.mailTimeoutMs / 1000)} s`;
+  return `Transporte: SMTP ${options.host}:${options.port} (${security}) · usuario: ${config.smtpUser || '(sin usuario)'} · contraseña: ${config.smtpPass ? 'definida' : 'vacía'} · remitente: ${describeSender()} · límite: ${formatSeconds(config.mailTimeoutMs)}`;
 };
 
 // Usage: npm run mail:test -- tucorreo@ejemplo.com
