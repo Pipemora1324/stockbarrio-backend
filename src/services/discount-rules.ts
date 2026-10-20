@@ -29,15 +29,17 @@ export const expirationTiers: ReadonlyArray<{ maxDays: number; percent: number; 
   { maxDays: 14, percent: 10, label: 'vence en {days} días' },
 ];
 
-// Extra points when there is more stock than the store can usually sell before the date.
+// Extra points when there is more stock than the store can usually sell before the date. There is no sales data,
+// so nothing here talks about "rotation": only the stock and the days left are used.
 export const stockBonuses: ReadonlyArray<{ minStock: number; percent: number }> = [
   { minStock: 30, percent: 10 },
   { minStock: 15, percent: 5 },
 ];
 
-// Fresh categories spoil fast, so they get a small extra push.
-export const perishableCategories = ['lacteos', 'panaderia', 'frutas y verduras', 'carnes', 'carnes frias', 'pescados', 'huevos'];
-export const perishableBonus = 5;
+// Only perishable products get automatic suggestions (accent-free names of the catalog categories).
+// Canned food, grains, drinks, cleaning products and the rest are never suggested, although the store can
+// still put any product on offer by hand.
+export const perishableCategories = ['frutas y verduras', 'carnes', 'carnes frias', 'pollo', 'pescados y mariscos', 'lacteos', 'comidas preparadas', 'panaderia', 'huevos'];
 export const maxSuggestedPercent = 70;
 
 export const normalizeText = (value: string) =>
@@ -47,13 +49,15 @@ export const normalizeText = (value: string) =>
     .toLowerCase()
     .trim();
 
+export const isPerishable = (category: string) => perishableCategories.includes(normalizeText(category));
+
 const roundToFive = (value: number) => Math.round(value / 5) * 5;
 export const priceWithDiscount = (price: number, percent: number) => Math.max(0, Math.round(price * (1 - percent / 100)));
 
 export const suggestDiscount = (item: InventoryItem, today: string): DiscountSuggestion | null => {
   const daysToExpire = daysBetween(today, item.expirationDate);
-  // Expired products must be removed from sale, not discounted.
-  if (daysToExpire < 0 || item.stock <= 0) return null;
+  // Expired products must be removed from sale, not discounted; non perishable ones are never suggested.
+  if (daysToExpire < 0 || item.stock <= 0 || !isPerishable(item.category)) return null;
   const tier = expirationTiers.find((candidate) => daysToExpire <= candidate.maxDays);
   if (!tier) return null;
 
@@ -62,11 +66,7 @@ export const suggestDiscount = (item: InventoryItem, today: string): DiscountSug
   const stockBonus = stockBonuses.find((bonus) => item.stock >= bonus.minStock);
   if (stockBonus) {
     percent += stockBonus.percent;
-    reasons.push(`tienes ${item.stock} unidades (exceso de stock)`);
-  }
-  if (perishableCategories.includes(normalizeText(item.category))) {
-    percent += perishableBonus;
-    reasons.push(`${item.category.toLowerCase()} es una categoría perecedera`);
+    reasons.push(`tienes ${item.stock} unidades (stock alto)`);
   }
   const suggestedPercent = Math.min(maxSuggestedPercent, roundToFive(percent));
   if (suggestedPercent <= item.discountPercent) return null;
