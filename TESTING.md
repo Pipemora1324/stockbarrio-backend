@@ -65,12 +65,12 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 
 ## Resultado actual
 
-203 pruebas, todas en verde (unos 40 s con la base de pruebas local).
+203 pruebas, todas en verde con Node 20 y Node 24 (unos 40 s con la base de pruebas local).
 
 | Métrica | Correo por SMTP | Ahora (con Brevo por API) |
 | --- | --- | --- |
 | Líneas | 97,8 % | 97,8 % |
-| Ramas | 88,7 % | 88,2 % |
+| Ramas | 88,7 % | 88,3 % |
 | Funciones | 100 % | 100 % |
 
 Lo que queda sin cubrir es sobre todo:

@@ -376,8 +376,9 @@ Las de la sección IA de `.env.example` y del README. Todas tienen valores por d
   - con Brevo, verifica la API key con `GET /v3/account` antes de enviar;
   - muestra el transporte y el remitente sin claves;
   - explica los errores típicos: clave, IP bloqueada, remitente sin verificar y puertos SMTP bloqueados en Render Free.
-- **Pruebas:** 203 en verde (97,8 % de líneas, 88,2 % de ramas). `fetch` está simulado en éxito, 401, 400, tiempo agotado y red caída, más la recuperación completa por la API. Ninguna hace llamadas reales.
+- **Pruebas:** 203 en verde con Node 20 y Node 24 (97,8 % de líneas, 88,3 % de ramas). `fetch` está simulado en éxito, 401, 400, tiempo agotado y red caída, más la recuperación completa por la API. Ninguna hace llamadas reales.
 - **Variables para Render:** `MAIL_PROVIDER=brevo-api`, `BREVO_API_KEY`, `MAIL_FROM` (remitente verificado en Brevo) y `APP_URL`.
+- **Bug encontrado por el CI:** el primer límite de tiempo usaba `AbortSignal.timeout`, cuyo temporizador en Node 20 no mantiene vivo el proceso. Si Brevo no respondía, `mail:test` podía terminar sin mostrar ningún error. Ahora usa un `AbortController` con un temporizador normal.
 - **Migraciones:** ninguna.
 - **Frontend:** sin cambios.
 
