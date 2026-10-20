@@ -44,8 +44,8 @@ export const suggestionRepository = {
   listPending: async (storeId: string) =>
     (
       await database.query<SuggestionRecord>(
-        `SELECT ${suggestionColumns} FROM discount_suggestions s JOIN products p ON p.id = s.product_id
-         WHERE s.store_id = $1 AND s.status = 'pending' ORDER BY s.priority ASC, s.days_to_expire ASC, s.suggested_percent DESC`,
+        `SELECT ${suggestionColumns} FROM discount_suggestions s JOIN products p ON p.id = s.product_id JOIN stores st ON st.id = s.store_id
+         WHERE s.store_id = $1 AND s.status = 'pending' AND p.active = true AND st.active = true ORDER BY s.priority ASC, s.days_to_expire ASC, s.suggested_percent DESC`,
         [storeId],
       )
     ).rows,

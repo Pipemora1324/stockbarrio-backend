@@ -130,7 +130,13 @@ export const productRepository = {
   },
   // Full inventory of a store, with the saved offer values (for its owner).
   listByStore: async (storeId: string) =>
-    (await database.query<ProductRecord>(`SELECT ${productColumns} FROM products p WHERE p.store_id = $1 AND p.active = true ORDER BY p.expiration_date ASC, lower(p.name)`, [storeId])).rows,
+    (
+      await database.query<ProductRecord>(
+        `SELECT ${productColumns} FROM products p JOIN stores s ON s.id = p.store_id
+         WHERE p.store_id = $1 AND p.active = true AND s.active = true ORDER BY p.expiration_date ASC, lower(p.name)`,
+        [storeId],
+      )
+    ).rows,
   // Public products of one store, as customers see them today.
   listPublicByStore: async (storeId: string, today: string) =>
     (
@@ -140,7 +146,9 @@ export const productRepository = {
         [storeId, today],
       )
     ).rows,
-  getById: async (id: string) => (await database.query<ProductRecord>(`SELECT ${productColumns} FROM products p WHERE p.id = $1 AND p.active = true`, [id])).rows[0],
+  // A product of a deleted store no longer exists for anybody, its owner included.
+  getById: async (id: string) =>
+    (await database.query<ProductRecord>(`SELECT ${productColumns} FROM products p JOIN stores s ON s.id = p.store_id WHERE p.id = $1 AND p.active = true AND s.active = true`, [id])).rows[0],
   upsert: async (
     product: Partial<ProductRecord> & { id?: string; storeId: string; name: string; price: number; stock: number; expirationDate: string; discountPercent: number; offerStartsOn: string | null; offerEndsOn: string | null },
   ) => {
