@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { findOffers, offerSorts } from '../services/offers.js';
 
 const router = Router();
-// Nearness is by neighborhood only: the API no longer takes coordinates or a radius.
+// La cercanía es solo por barrio: la API ya no recibe coordenadas ni radio.
 const schema = z.object({
   neighborhood: z.string().trim().min(2).max(80).optional(),
   category: z.string().trim().min(2).max(80).optional(),

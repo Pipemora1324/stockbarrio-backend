@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { addDays, todayInBogota } from '../src/dates.js';
 import { AppError } from '../src/errors.js';
-import { formatDay, isOfferActive, offerMessages, offerStatus, resolveOfferRange, type OfferFields } from '../src/services/offer-rules.js';
+import { formatDay, offerMessages, offerStatus, resolveOfferRange, type OfferFields } from '../src/services/offer-rules.js';
 
 const today = '2026-10-19';
 const product = (overrides: Partial<OfferFields> = {}): OfferFields => ({
@@ -29,7 +29,6 @@ describe('offerStatus', () => {
     assert.equal(offerStatus(product({ discountPercent: 0 }), today), 'none');
     assert.equal(offerStatus(product({ offerStartsOn: null }), today), 'none');
     assert.equal(offerStatus(product({ offerEndsOn: null }), today), 'none');
-    assert.equal(isOfferActive(product({ offerEndsOn: null }), today), false);
   });
 
   it('ends with the product: an expired product never shows an active offer', () => {
@@ -38,13 +37,13 @@ describe('offerStatus', () => {
 
   it('changes at midnight in Bogota, not at midnight UTC', () => {
     const offer = product({ offerStartsOn: '2026-10-20', offerEndsOn: '2026-10-20', expirationDate: '2026-10-25' });
-    // 23:59 of October 19 in Bogota is already October 20 in UTC.
+    // Las 23:59 del 19 de octubre en Bogotá ya son 20 de octubre en UTC.
     const lastMinute = todayInBogota(new Date('2026-10-20T04:59:00Z'));
     const nextDay = todayInBogota(new Date('2026-10-20T05:00:00Z'));
     assert.deepEqual([lastMinute, nextDay], ['2026-10-19', '2026-10-20']);
     assert.equal(offerStatus(offer, lastMinute), 'scheduled');
     assert.equal(offerStatus(offer, nextDay), 'active');
-    // And it ends after 23:59 of its last day in Bogota.
+    // Y termina después de las 23:59 de su último día en Bogotá.
     assert.equal(offerStatus(offer, todayInBogota(new Date('2026-10-21T04:59:00Z'))), 'active');
     assert.equal(offerStatus(offer, todayInBogota(new Date('2026-10-21T05:00:00Z'))), 'ended');
   });
@@ -66,7 +65,7 @@ describe('resolveOfferRange', () => {
       offerStartsOn: today,
       offerEndsOn: expirationDate,
     });
-    // A one-day offer on the last day of the product.
+    // Una oferta de un día, el último día del producto.
     assert.deepEqual(resolveOfferRange({ discountPercent: 20, expirationDate, offerStartsOn: expirationDate, offerEndsOn: expirationDate }, today), {
       offerStartsOn: expirationDate,
       offerEndsOn: expirationDate,
@@ -94,12 +93,12 @@ describe('resolveOfferRange', () => {
   it('keeps a running offer whose start is already in the past when nothing about it changes', () => {
     const running = product({ offerStartsOn: addDays(today, -3), offerEndsOn: addDays(today, 2), expirationDate });
     assert.deepEqual(resolveOfferRange({ discountPercent: 20, expirationDate }, today, running), { offerStartsOn: addDays(today, -3), offerEndsOn: addDays(today, 2) });
-    // Moving only the end keeps the past start, which is not being changed.
+    // Mover solo el fin conserva el inicio en el pasado, que no se está cambiando.
     assert.deepEqual(resolveOfferRange({ discountPercent: 30, expirationDate, offerEndsOn: addDays(today, 4) }, today, running), {
       offerStartsOn: addDays(today, -3),
       offerEndsOn: addDays(today, 4),
     });
-    // But a new start in the past is rejected.
+    // Pero un inicio nuevo en el pasado se rechaza.
     rejects(() => resolveOfferRange({ discountPercent: 20, expirationDate, offerStartsOn: addDays(today, -2) }, today, running), offerMessages.startInPast);
   });
 

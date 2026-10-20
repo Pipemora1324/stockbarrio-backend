@@ -29,11 +29,11 @@ export interface StoreInput {
   phone: string;
 }
 
-// The latitude and longitude columns stay in the table but are no longer read nor exposed.
+// Las columnas latitude y longitude siguen en la tabla, pero ya no se leen ni se exponen.
 const storeColumns = 's.id, s.name, s.neighborhood, s.address, s.phone, s.active, s.created_at AS "createdAt"';
 const productCount = `(SELECT count(*)::int FROM products p WHERE p.store_id = s.id AND p.active = true) AS "productCount"`;
 
-// A seller can have several stores. The "main" one (users.store_id, usually the first) is what older clients see.
+// Un vendedor puede tener varios locales. El "principal" (users.store_id, normalmente el primero) es el que usan los endpoints sin storeId.
 const ownedStoresQuery = `SELECT ${storeColumns}, s.user_id AS "userId", ${productCount}
   FROM stores s JOIN users u ON u.id = s.user_id
   WHERE s.user_id = $1 AND s.active = true
@@ -42,7 +42,7 @@ const ownedStoresQuery = `SELECT ${storeColumns}, s.user_id AS "userId", ${produ
 export const maxStoresPerUser = 10;
 
 export const storeRepository = {
-  // Public list with how many products and offers (active today) each store has.
+  // Lista pública con cuántos productos y ofertas (activas hoy) tiene cada local.
   list: async (neighborhood: string | undefined, today: string) => {
     const params: unknown[] = [today];
     if (neighborhood) params.push(`%${neighborhood}%`);
@@ -54,19 +54,16 @@ export const storeRepository = {
     );
     return result.rows;
   },
-  getById: async (id: string) => (await database.query<StoreRecord>(`SELECT ${storeColumns} FROM stores s WHERE s.id = $1 AND s.active = true`, [id])).rows[0],
-  // Includes the owner, for the ownership checks.
+  // Incluye al dueño, para comprobar la propiedad.
   getOwned: async (id: string) =>
     (await database.query<StoreRecord & { userId: string }>(`SELECT ${storeColumns}, s.user_id AS "userId" FROM stores s WHERE s.id = $1 AND s.active = true`, [id])).rows[0],
   listNeighborhoods: async () =>
     (await database.query<{ neighborhood: string }>(`SELECT DISTINCT neighborhood FROM stores WHERE active = true AND neighborhood <> '' ORDER BY neighborhood`)).rows.map((row) => row.neighborhood),
-  // Claims today's AI call for the store. Only the first caller of the day gets true, even with simultaneous visits.
+  // Reserva la llamada a la IA de hoy para el local. Solo la primera petición del día recibe true, aunque lleguen varias a la vez.
   claimAiReasonsDay: async (id: string, day: string) =>
     Boolean((await database.query(`UPDATE stores SET ai_reasons_on = $2 WHERE id = $1 AND ai_reasons_on IS DISTINCT FROM $2::date RETURNING id`, [id, day])).rowCount),
   listByUser: async (userId: string) => (await database.query<OwnedStoreRecord>(ownedStoresQuery, [userId])).rows,
-  // The main store of a seller (what older clients and endpoints without storeId use).
-  getByUserId: async (userId: string) => (await database.query<OwnedStoreRecord>(ownedStoresQuery, [userId])).rows[0],
-  // Another active store with the same name in the same neighborhood (letter case ignored).
+  // Otro local activo con el mismo nombre en el mismo barrio (sin importar mayúsculas).
   isNameTaken: async (name: string, neighborhood: string, exceptId?: string) =>
     Boolean(
       (
@@ -85,7 +82,7 @@ export const storeRepository = {
         input.address,
         input.phone,
       ]);
-      // The first store (or the first one after deleting all of them) becomes the main one.
+      // El primer local (o el primero después de eliminarlos todos) pasa a ser el principal.
       await client.query('UPDATE users SET store_id = $1 WHERE id = $2 AND (store_id IS NULL OR NOT EXISTS (SELECT 1 FROM stores WHERE id = users.store_id AND active = true))', [
         created.rows[0].id,
         userId,
@@ -100,11 +97,12 @@ export const storeRepository = {
         [id, input.name ?? null, input.neighborhood ?? null, input.address ?? null, input.phone ?? null],
       )
     ).rows[0],
-  // Soft delete: the store and its products stop showing, but no row is erased (it can be recovered by hand).
-  // Its pending suggestions are closed and the seller's main store moves to the next one, or to none.
+  // Borrado lógico: el local y todos sus productos dejan de verse, pero no se borra ninguna fila (se puede recuperar a mano).
+  // Sus sugerencias pendientes se cierran y el local principal del vendedor pasa al siguiente, o a ninguno.
   deactivate: (id: string, userId: string) =>
     database.withTransaction(async (client: PoolClient) => {
       await client.query('UPDATE stores SET active = false WHERE id = $1', [id]);
+      await client.query('UPDATE products SET active = false WHERE store_id = $1 AND active = true', [id]);
       await client.query(`UPDATE discount_suggestions SET status = 'expired', decided_at = CURRENT_TIMESTAMP WHERE store_id = $1 AND status = 'pending'`, [id]);
       await client.query(
         `UPDATE users SET store_id = (SELECT s.id FROM stores s WHERE s.user_id = $2 AND s.active = true ORDER BY s.created_at ASC, s.id ASC LIMIT 1)

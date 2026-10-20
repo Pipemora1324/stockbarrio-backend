@@ -1,4 +1,4 @@
-// Small in-memory cache with expiry, used to avoid paying twice for identical questions asked seconds apart.
+// Caché pequeña en memoria con vencimiento, para no pagar dos veces la misma pregunta hecha con segundos de diferencia.
 export class TtlCache<T> {
   private readonly entries = new Map<string, { value: T; expiresAt: number }>();
 

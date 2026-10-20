@@ -17,7 +17,7 @@ interface BrevoCall {
   body: Record<string, any> | null;
 }
 
-// Answers Brevo's URLs with the given function and lets every other request (the API under test) through.
+// Responde las URL de Brevo con la función dada y deja pasar todas las demás peticiones (la API que se prueba).
 const simulateBrevo = (answer: (call: BrevoCall) => Response | Promise<Response>) => {
   const calls: BrevoCall[] = [];
   const realFetch = globalThis.fetch;
@@ -88,7 +88,7 @@ describe('Brevo transport', () => {
   it('gives up after the time limit', async () => {
     config.mailTimeoutMs = 50;
     const realFetch = globalThis.fetch;
-    // The simulated Brevo never answers: the request must end through its abort signal.
+    // El Brevo simulado nunca responde: la petición debe terminar por su señal de cancelación.
     mock.method(globalThis, 'fetch', (input: string | URL | Request, init: RequestInit = {}) =>
       String(input).startsWith('https://api.brevo.com/')
         ? new Promise<Response>((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(init.signal!.reason)))

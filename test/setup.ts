@@ -1,11 +1,11 @@
 import { isLocalUrl, isUsableTestDatabaseUrl } from './helpers/database-guard.js';
 
-// Loaded before every test file (see the "test" script), before the app reads its configuration.
+// Se carga antes de cada archivo de pruebas (ver el script "test"), antes de que la app lea su configuración.
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
-// Without a test database the pool points to a port where nothing listens, never to DATABASE_URL.
+// Sin una base de pruebas, el pool apunta a un puerto donde no hay nada, nunca a DATABASE_URL.
 process.env.DATABASE_URL = isUsableTestDatabaseUrl(testDatabaseUrl) ? testDatabaseUrl : 'postgresql://127.0.0.1:1/sin_base_test';
 
-// Real keys or services from the environment never reach the tests: each test configures simulated providers itself.
+// Las claves o servicios reales del entorno nunca llegan a las pruebas: cada prueba configura sus proveedores simulados.
 Object.assign(process.env, {
   NODE_ENV: 'test',
   AI_PROVIDER: 'local',
@@ -18,7 +18,6 @@ Object.assign(process.env, {
   SUPABASE_URL: '',
   SUPABASE_JWKS_URL: '',
   SUPABASE_JWT_SECRET: '',
-  ENABLE_ALERTS: 'false',
 });
 
 const realFetch = globalThis.fetch;

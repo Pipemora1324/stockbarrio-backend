@@ -1,9 +1,9 @@
 import { integrationSkip, useTestApi } from './helpers/api.js';
 import assert from 'node:assert/strict';
-import { afterEach, describe, it, mock } from 'node:test';
-import { config } from '../src/config.js';
+import { describe, it } from 'node:test';
 import { addDays, todayInBogota } from '../src/dates.js';
 import { askNeighborhood, buildReply, gradeScore, rankResults, type AssistantResult } from '../src/services/assistant.js';
+import { parseIntent } from '../src/services/search-intent.js';
 
 const result = (overrides: Partial<AssistantResult>): AssistantResult => ({
   productId: 'x', name: 'Huevos AA x 30', category: 'Huevos', price: 18000, offerPrice: 18000, discountPercent: 0, stock: 5,
@@ -53,18 +53,19 @@ describe('buildReply', () => {
   });
 });
 
-describe('assistant API', { skip: integrationSkip }, () => {
+describe('findResults (search used by the chat)', { skip: integrationSkip }, () => {
   const context = useTestApi();
   const { call, registerStore } = context;
   const today = todayInBogota();
+  const neighborhoods = ['Chapinero', 'Suba'];
+  const search = async (message: string, chosen?: string) => {
+    const { findResults, withChosenNeighborhood } = await import('../src/services/assistant.js');
+    const intent = withChosenNeighborhood(parseIntent(message, neighborhoods), chosen, neighborhoods);
+    const results = await findResults(intent);
+    return { intent, results, reply: buildReply(intent, results, neighborhoods) };
+  };
 
-  afterEach(() => {
-    mock.restoreAll();
-    config.aiProvider = 'local';
-    config.openAiApiKey = '';
-  });
-
-  const setupStores = async () => {
+  it('finds the cheapest eggs first, never expired products, in every store', async () => {
     const near = await registerStore('asis-cerca', { storeName: 'Tienda Cerca', neighborhood: 'Chapinero' });
     const far = await registerStore('asis-lejos', { storeName: 'Tienda Lejos', neighborhood: 'Suba' });
     const product = { category: 'Huevos', stock: 10, discountPercent: 0 };
@@ -72,73 +73,22 @@ describe('assistant API', { skip: integrationSkip }, () => {
     await call('POST', '/api/products', { ...product, name: 'Huevos A x 30', price: 16000, expirationDate: addDays(today, 5) }, far.token);
     await call('POST', '/api/products', { ...product, name: 'Leche entera 1 L', category: 'Lácteos', price: 4900, expirationDate: addDays(today, 2) }, far.token);
     await call('POST', '/api/products', { ...product, name: 'Leche deslactosada 1 L', category: 'Lácteos', price: 5600, expirationDate: addDays(today, 4) }, near.token);
-    await call('POST', '/api/products', { ...product, name: 'Leche vencida', category: 'Lácteos', price: 3000, expirationDate: addDays(today, -1) }, near.token);
-  };
+    const expired = await call('POST', '/api/products', { ...product, name: 'Leche vencida', category: 'Lácteos', price: 3000, expirationDate: addDays(today, 1) }, near.token);
+    await context.pool.query('UPDATE products SET expiration_date = $2 WHERE id = $1', [expired.body.data.id, addDays(today, -1)]);
 
-  it('answers "busco huevos baratos" with the cheapest eggs first', async () => {
-    await setupStores();
-    const response = await call('POST', '/api/assistant/search', { message: 'busco huevos baratos' });
-    assert.equal(response.status, 200);
-    assert.deepEqual(response.body.data.results.map((item: { name: string }) => item.name), ['Huevos A x 30', 'Huevos AA x 30']);
-    assert.match(response.body.data.reply, /La más barata: Huevos A x 30 en Tienda Lejos \(Suba\) a \$ 16\.000/);
-    assert.equal('distanceKm' in response.body.data.results[0], false);
+    const eggs = await search('busco huevos baratos');
+    assert.deepEqual(eggs.results.map((item) => item.name), ['Huevos A x 30', 'Huevos AA x 30']);
+    assert.match(eggs.reply, /La más barata: Huevos A x 30 en Tienda Lejos \(Suba\) a \$ 16\.000/);
+    const milk = await search('leche cerca de mí');
+    assert.deepEqual(milk.results.map((item) => item.name), ['Leche entera 1 L', 'Leche deslactosada 1 L']);
+    assert.match(milk.reply, /dime tu barrio\. Hay tiendas en Chapinero y Suba\./);
   });
 
-  it('answers "leche cerca de mí" with every store and asks for the neighborhood, without expired products', async () => {
-    const response = await call('POST', '/api/assistant/search', { message: 'leche cerca de mí' });
-    assert.deepEqual(response.body.data.results.map((item: { name: string }) => item.name), ['Leche entera 1 L', 'Leche deslactosada 1 L']);
-    assert.match(response.body.data.reply, /dime tu barrio\. Hay tiendas en Chapinero y Suba\./);
-    assert.equal('origin' in response.body.data, false);
-  });
-
-  it('uses the chosen neighborhood as a filter when the message does not name one', async () => {
-    const response = await call('POST', '/api/assistant/search', { message: 'leche cerca', neighborhood: 'suba' });
-    assert.deepEqual(response.body.data.results.map((item: { store: { name: string } }) => item.store.name), ['Tienda Lejos']);
-    assert.equal(response.body.data.intent.neighborhood, 'Suba');
-    assert.doesNotMatch(response.body.data.reply, /dime tu barrio/);
-  });
-
-  it('filters by a neighborhood written in the message', async () => {
-    const response = await call('POST', '/api/assistant/search', { message: 'huevos en chapinero' });
-    assert.deepEqual(response.body.data.results.map((item: { store: { name: string } }) => item.store.name), ['Tienda Cerca']);
-    assert.equal(response.body.data.intent.neighborhood, 'Chapinero');
-  });
-
-  it('validates the request', async () => {
-    assert.equal((await call('POST', '/api/assistant/search', { message: '' })).status, 400);
-    const older = await call('POST', '/api/assistant/search', { message: 'leche', latitude: 4.6, longitude: -74.06 });
-    assert.equal(older.status, 200, 'coordinates from older clients are ignored');
-    assert.equal(JSON.stringify(older.body).includes('distance'), false);
-  });
-
-  it('asks the provider only when the rules do not understand the product, and validates its answer', async () => {
-    config.aiProvider = 'openai';
-    config.openAiApiKey = 'clave-de-prueba';
-    const realFetch = globalThis.fetch;
-    let answer = '';
-    let providerCalls = 0;
-    mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
-      if (!String(input).startsWith(config.openAiBaseUrl)) return realFetch(input, init);
-      providerCalls++;
-      return new Response(JSON.stringify({ choices: [{ message: { content: answer } }] }));
-    });
-    answer = JSON.stringify({ terms: ['huevos'], preference: 'best_grade' });
-    const clear = await call('POST', '/api/assistant/search', { message: 'quiero los mejores huevitos' });
-    assert.equal(providerCalls, 0, 'the rules understood it');
-    assert.equal(clear.body.data.intent.preference, 'best_grade');
-
-    const unclear = await call('POST', '/api/assistant/search', { message: 'ayúdame por favor' });
-    assert.equal(providerCalls, 1);
-    assert.equal(unclear.body.data.intent.preference, 'best_grade');
-    assert.equal(unclear.body.data.results[0].name, 'Huevos AA x 30');
-
-    answer = JSON.stringify({ terms: ["'; DROP TABLE products; --"], preference: 'cheapest' });
-    const invalid = await call('POST', '/api/assistant/search', { message: 'me ayudas?' });
-    assert.deepEqual(invalid.body.data.intent.terms, []);
-  });
-
-  it('lists the neighborhoods that have stores', async () => {
-    const neighborhoods = await call('GET', '/api/stores/neighborhoods');
-    assert.deepEqual(neighborhoods.body.data, ['Chapinero', 'Suba']);
+  it('filters by the remembered neighborhood or by one written in the message', async () => {
+    const chosen = await search('leche cerca', 'suba');
+    assert.deepEqual(chosen.results.map((item) => item.store.name), ['Tienda Lejos']);
+    assert.equal(chosen.intent.neighborhood, 'Suba');
+    const written = await search('huevos en chapinero');
+    assert.deepEqual(written.results.map((item) => item.store.name), ['Tienda Cerca']);
   });
 });

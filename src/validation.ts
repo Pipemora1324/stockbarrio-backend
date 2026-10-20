@@ -15,7 +15,7 @@ const accentInsensitive = (value: string) =>
     .toLowerCase()
     .trim();
 
-// Accepts 'YYYY-MM-DD' (and full ISO strings from older clients) and keeps only the calendar day.
+// Acepta 'AAAA-MM-DD' (y fechas ISO completas de clientes viejos) y se queda solo con el día.
 export const dateOnlySchema = z
   .string({ error: 'La fecha es obligatoria.' })
   .trim()
@@ -23,7 +23,7 @@ export const dateOnlySchema = z
   .transform((value) => value.slice(0, 10))
   .refine(isRealDate, 'La fecha no es válida.');
 
-// People: letters (accents and ñ included), spaces, apostrophes and hyphens. No digits or symbols.
+// Personas: letras (con tildes y ñ), espacios, apóstrofes y guiones. Sin números ni símbolos.
 export const personNameSchema = z
   .string({ error: 'El nombre es obligatorio.' })
   .transform(collapseSpaces)
@@ -35,7 +35,7 @@ export const personNameSchema = z
       .regex(/^[\p{L}\p{M}]+(?:[ '’-][\p{L}\p{M}]+)*$/u, 'El nombre solo puede tener letras, espacios, apóstrofes y guiones.'),
   );
 
-// Stores: letters, numbers and . , - & ' with at least one letter.
+// Tiendas: letras, números y . , - & ' con al menos una letra.
 export const storeNameSchema = z
   .string({ error: 'El nombre de la tienda es obligatorio.' })
   .transform(collapseSpaces)
@@ -48,7 +48,7 @@ export const storeNameSchema = z
       .regex(/\p{L}/u, 'El nombre de la tienda debe tener al menos una letra.'),
   );
 
-// Colombian phones: mobile 3XXXXXXXXX or landline 60X XXXXXXX (national format since 2021), with optional +57.
+// Teléfonos colombianos: celular 3XXXXXXXXX o fijo 60X XXXXXXX (formato nacional desde 2021), con +57 opcional.
 export const normalizePhone = (value: string) => value.replace(/[\s().-]/g, '').replace(/^(\+?57)(?=\d{10}$)/, '');
 export const isColombianPhone = (digits: string) => /^3\d{9}$/.test(digits) || /^60[1-8]\d{7}$/.test(digits);
 export const phoneSchema = z
@@ -63,7 +63,34 @@ export const emailSchema = z
   .max(254, 'El correo electrónico debe tener como máximo 254 caracteres.')
   .pipe(z.email('El correo electrónico no es válido.'));
 
-// bcrypt only uses the first 72 bytes, so longer passwords are rejected instead of silently truncated.
+// Un buzón, una cuenta. Gmail ignora los puntos y el "+etiqueta" de la parte local y trata googlemail.com como gmail.com,
+// así que esas variantes son el mismo buzón. Los demás proveedores solo se comparan en minúsculas.
+const gmailDomains = new Set(['gmail.com', 'googlemail.com']);
+export const canonicalEmail = (email: string) => {
+  const normalized = email.trim().toLowerCase();
+  const at = normalized.lastIndexOf('@');
+  if (at < 1) return normalized;
+  const local = normalized.slice(0, at);
+  const domain = normalized.slice(at + 1);
+  if (!gmailDomains.has(domain)) return normalized;
+  return `${local.split('+')[0].replace(/\./g, '')}@gmail.com`;
+};
+
+// La misma forma canónica calculada en SQL sobre los correos guardados (sin índice: la tabla es pequeña).
+export const canonicalEmailSql = (column = 'email') => {
+  const email = `lower(trim(${column}))`;
+  return `(CASE WHEN split_part(${email}, '@', 2) IN ('gmail.com', 'googlemail.com')
+    THEN replace(split_part(split_part(${email}, '@', 1), '+', 1), '.', '') || '@gmail.com' ELSE ${email} END)`;
+};
+
+export const plusAliasMessage = 'No uses alias con +; escribe tu correo normal.';
+export const emailTakenMessage = 'Este correo ya está vinculado a una cuenta. Inicia sesión o recupera tu contraseña.';
+export const hasPlusAlias = (email: string) => email.split('@')[0]?.includes('+') ?? false;
+
+// Para cuentas nuevas y cambios de correo. El login y la recuperación siguen aceptando direcciones viejas con "+".
+export const newEmailSchema = emailSchema.refine((value) => !hasPlusAlias(value), plusAliasMessage);
+
+// bcrypt solo usa los primeros 72 bytes, así que las contraseñas más largas se rechazan en vez de cortarse en silencio.
 export const passwordSchema = z
   .string({ error: 'La contraseña es obligatoria.' })
   .min(8, 'La contraseña debe tener al menos 8 caracteres.')
@@ -96,7 +123,7 @@ export const productCategories = [
 const categoryByKey = new Map(productCategories.map((category) => [accentInsensitive(category), category]));
 export const canonicalCategory = (value: string) => categoryByKey.get(accentInsensitive(value));
 
-// Accepts any capitalization or missing accents ("lacteos") and stores the canonical name ("Lácteos").
+// Acepta cualquier mayúscula o la falta de tildes ("lacteos") y guarda el nombre canónico ("Lácteos").
 export const categorySchema = z
   .string({ error: 'La categoría es obligatoria.' })
   .transform((value, context) => {
@@ -129,7 +156,7 @@ export const priceSchema = z.coerce
   .min(1, 'El precio debe ser mayor que 0.')
   .max(maxPrice, 'El precio no puede superar $ 10.000.000.');
 
-// 0 is allowed and means "sold out".
+// 0 está permitido y significa "agotado".
 export const stockSchema = z.coerce
   .number({ error: 'El stock debe ser un número.' })
   .int('El stock debe ser un número entero.')
@@ -144,7 +171,7 @@ export const discountSchema = z.coerce
 
 export const maxExpirationYears = 5;
 
-// New products cannot expire in the past (Bogota calendar) nor absurdly far in the future.
+// Los productos nuevos no pueden vencer en el pasado (calendario de Bogotá) ni en un futuro absurdo.
 export const futureDateSchema = dateOnlySchema
   .refine((value) => value >= todayInBogota(), 'La fecha de vencimiento no puede estar en el pasado.')
   .refine((value) => value <= addDays(todayInBogota(), 365 * maxExpirationYears), 'La fecha de vencimiento es demasiado lejana.');

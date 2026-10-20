@@ -113,8 +113,8 @@ describe('validation in the API', { skip: integrationSkip }, () => {
 
   it('stores the normalized email and phone', async () => {
     const { token } = await registerStore('normaliza', { email: 'Tienda.Normaliza@Stockbarrio.Test', phone: '+57 310 555 1234' });
-    const store = await call('GET', '/api/stores/me', undefined, token);
-    assert.equal(store.body.data.phone, '3105551234');
+    const store = await call('GET', '/api/stores/mine', undefined, token);
+    assert.equal(store.body.data[0].phone, '3105551234');
     const login = await call('POST', '/api/auth/login', { email: 'TIENDA.NORMALIZA@stockbarrio.test', password: 'tienda12345' });
     assert.equal(login.status, 200);
   });
@@ -129,7 +129,7 @@ describe('validation in the API', { skip: integrationSkip }, () => {
     assert.equal(invalid.status, 400);
     const fields = (invalid.body.errors as Array<{ field: string }>).map((item) => item.field).sort();
     assert.deepEqual(fields, ['category', 'discountPercent', 'expirationDate', 'name', 'price', 'stock']);
-    // Editing an old product keeps working even if its category is not in the list.
+    // Editar un producto viejo sigue funcionando aunque su categoría no esté en la lista.
     const id = valid.body.data.id as string;
     assert.equal((await call('PUT', `/api/products/${id}`, { category: 'Juguetes' }, token)).status, 400);
     assert.equal((await call('PUT', `/api/products/${id}`, { stock: 3 }, token)).status, 200);

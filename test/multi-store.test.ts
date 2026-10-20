@@ -29,7 +29,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     const mine = await call('GET', '/api/stores/mine', undefined, owner.token);
     assert.deepEqual(names(mine.body), ['Local Uno', 'Local Dos']);
     assert.equal(mine.body.max, maxStoresPerUser);
-    // The old store id in the account stays the main one.
+    // El local que ya tenía la cuenta sigue siendo el principal.
     assert.equal(mine.body.data[0].id, owner.user.storeId);
   });
 
@@ -105,13 +105,42 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.equal(removed.body.message, 'Se eliminó el local «Local Dos Express».');
     assert.deepEqual(names((await call('GET', '/api/stores/mine', undefined, owner.token)).body), ['Local Uno']);
     assert.ok(!names((await call('GET', '/api/stores')).body).includes('Local Dos Express'));
-    assert.equal((await call('GET', `/api/stores/${secondId}`)).status, 404);
-    assert.deepEqual((await call('GET', `/api/products/store/${secondId}`)).body.data, []);
     assert.equal((await call('GET', `/api/products/mine?storeId=${secondId}`, undefined, owner.token)).status, 403);
     const rows = await context.pool.query('SELECT active FROM stores WHERE id = $1', [secondId]);
     assert.deepEqual(rows.rows, [{ active: false }]);
-    const products = await context.pool.query('SELECT count(*)::int AS count FROM products WHERE store_id = $1', [secondId]);
-    assert.equal(products.rows[0].count, 1);
+    const products = await context.pool.query('SELECT active FROM products WHERE store_id = $1', [secondId]);
+    assert.deepEqual(products.rows, [{ active: false }], 'the product row stays, deactivated');
+  });
+
+  it('deactivates every product of a deleted store and hides them from every public query', async () => {
+    const seller = await registerStore('borra-productos', { storeName: 'Sede Vieja', neighborhood: 'Engativá' });
+    const second = (await call('POST', '/api/stores', { name: 'Sede Que Se Va', neighborhood: 'Engativá', address: 'Calle 8 # 7-6' }, seller.token)).body.data.id as string;
+    const base = { category: 'Lácteos', price: 8000, stock: 9, expirationDate: addDays(today, 2), storeId: second };
+    const offer = (await call('POST', '/api/products', { ...base, name: 'Kumis que se va', discountPercent: 30 }, seller.token)).body.data;
+    const plain = (await call('POST', '/api/products', { ...base, name: 'Queso que se va' }, seller.token)).body.data;
+    // Se ve antes de eliminar el local.
+    assert.ok((await call('POST', '/api/offers/search', {})).body.data.some((item: { name: string }) => item.name === 'Kumis que se va'));
+
+    assert.equal((await call('DELETE', `/api/stores/${second}`, undefined, seller.token)).status, 200);
+    const rows = await context.pool.query('SELECT name, active FROM products WHERE store_id = $1 ORDER BY name', [second]);
+    assert.deepEqual(rows.rows, [
+      { name: 'Kumis que se va', active: false },
+      { name: 'Queso que se va', active: false },
+    ]);
+    const names = (items: Array<{ name: string }>) => items.map((item) => item.name);
+    const gone = (list: string[]) => !list.some((name) => name.endsWith('que se va'));
+    assert.ok(gone(names((await call('POST', '/api/offers/search', {})).body.data)), 'ofertas');
+    const catalog = (await call('GET', '/api/products/catalog')).body.data as Array<{ products: Array<{ name: string }> }>;
+    assert.ok(gone(catalog.flatMap((group) => names(group.products))), 'catálogo agrupado');
+    const chat = await call('POST', '/api/assistant/chat', { messages: [{ role: 'user', content: 'kumis' }] });
+    assert.ok(gone(names(chat.body.data.results)), 'chat');
+    const home = (await call('GET', '/api/stores')).body.data as Array<{ id: string }>;
+    assert.ok(!home.some((store) => store.id === second), 'inicio');
+    // Su dueño tampoco puede editarlos, y nunca vuelven como sugerencias.
+    assert.equal((await call('PUT', `/api/products/${offer.id}`, { stock: 1 }, seller.token)).status, 404);
+    assert.equal((await call('DELETE', `/api/products/${plain.id}`, undefined, seller.token)).status, 404);
+    const suggestions = await call('GET', '/api/suggestions', undefined, seller.token);
+    assert.ok(gone(suggestions.body.data.map((item: { productName: string }) => item.productName)), 'sugerencias');
   });
 
   it('moves the main store when it is deleted, and works with no stores at all', async () => {
@@ -120,7 +149,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     await call('DELETE', `/api/stores/${seller.user.storeId}`, undefined, seller.token);
     const account = await context.pool.query('SELECT store_id AS "storeId" FROM users WHERE id = $1', [seller.user.id]);
     assert.equal(account.rows[0].storeId, extra.body.data.id);
-    assert.equal((await call('GET', '/api/stores/me', undefined, seller.token)).body.data.name, 'Segundo Local');
+    assert.equal((await call('GET', '/api/stores/mine', undefined, seller.token)).body.data[0].name, 'Segundo Local');
 
     await call('DELETE', `/api/stores/${extra.body.data.id}`, undefined, seller.token);
     assert.deepEqual((await call('GET', '/api/stores/mine', undefined, seller.token)).body.data, []);
@@ -132,7 +161,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.equal(again.status, 201);
     const main = await context.pool.query('SELECT store_id AS "storeId" FROM users WHERE id = $1', [seller.user.id]);
     assert.equal(main.rows[0].storeId, again.body.data.id, 'the first store after having none becomes the main one');
-    // A deleted store's name can be used again.
+    // El nombre de un local eliminado se puede volver a usar.
     assert.equal((await call('POST', '/api/stores', { name: 'Primer Local', neighborhood: 'Bosa', address: 'Calle 1 # 2-3' }, seller.token)).status, 201);
   });
 
@@ -156,7 +185,7 @@ describe('several stores per seller', { skip: integrationSkip }, () => {
     assert.deepEqual(north.body.data.map((item: { productName: string }) => item.productName), ['Leche norte']);
     const southSuggestions = await call('GET', `/api/suggestions?storeId=${south}`, undefined, seller.token);
     assert.deepEqual(southSuggestions.body.data.map((item: { productName: string }) => item.productName), ['Leche sur']);
-    // Approving needs the store of the suggestion.
+    // Para aprobar hace falta el local de la sugerencia.
     assert.equal((await call('POST', `/api/suggestions/${southSuggestions.body.data[0].id}/approve`, {}, seller.token)).status, 404);
     assert.equal((await call('POST', `/api/suggestions/${southSuggestions.body.data[0].id}/approve?storeId=${south}`, {}, seller.token)).status, 200);
   });

@@ -17,17 +17,17 @@ export const mailNotConfigured = () =>
 
 const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-// Gmail shows app passwords in groups of four ("abcd efgh ijkl mnop"); the spaces are not part of the password.
+// Gmail muestra las contraseñas de aplicación en grupos de cuatro ("abcd efgh ijkl mnop"); los espacios no son parte de la contraseña.
 export const smtpPassword = () => (/(^|\.)gmail\.com$/i.test(config.smtpHost) ? config.smtpPass.replace(/\s+/g, '') : config.smtpPass);
 
-// MAIL_FROM when it is set; otherwise the authenticated account, which is what Gmail sends from anyway.
-// If the provider rewrites a different MAIL_FROM to the authenticated account, the message still goes out.
+// MAIL_FROM si está definido; si no, la cuenta autenticada, que es desde donde Gmail envía de todos modos.
+// Si el proveedor reescribe un MAIL_FROM distinto con la cuenta autenticada, el mensaje igual sale.
 export const senderAddress = () => config.mailFrom || (isEmail(config.smtpUser) ? `StockBarrio <${config.smtpUser}>` : 'StockBarrio <no-responder@stockbarrio.local>');
 
 export const smtpOptions = () => ({
   host: config.smtpHost,
   port: config.smtpPort,
-  // 465: TLS from the start. 587: plain connection that must upgrade with STARTTLS before logging in.
+  // 465: TLS desde el inicio. 587: conexión normal que debe pasar a STARTTLS antes de iniciar sesión.
   secure: config.smtpSecure,
   requireTLS: !config.smtpSecure && config.smtpPort === 587,
   auth: config.smtpUser ? { user: config.smtpUser, pass: smtpPassword() } : undefined,
@@ -38,7 +38,7 @@ export const smtpOptions = () => ({
 
 let transporter: Transporter | null = null;
 const smtpTransporter = () => (transporter ??= nodemailer.createTransport(smtpOptions()));
-// Lets tests build a new connection with a different configuration.
+// Permite que las pruebas armen una conexión nueva con otra configuración.
 export const resetSmtpTransport = () => {
   transporter = null;
 };
@@ -47,20 +47,20 @@ const smtpTransport: MailTransport = async (message) => {
   await smtpTransporter().sendMail({ from: senderAddress(), to: message.to, subject: message.subject, text: message.text, html: message.html });
 };
 
-// Without SMTP in development the message goes to the console so the flow can be tested locally.
-// It is never used in production, so links are never written to production logs.
+// Sin SMTP en desarrollo el mensaje va a la consola, para probar el flujo en local.
+// Nunca se usa en producción, así que los enlaces nunca se escriben en los logs de producción.
 const consoleTransport: MailTransport = async (message) => {
   console.info(`[correo de desarrollo] Para: ${message.to}\nAsunto: ${message.subject}\n${message.text}\n`);
 };
 
 let overrideTransport: MailTransport | null = null;
-// Lets tests capture the messages instead of sending them.
+// Permite que las pruebas capturen los mensajes en vez de enviarlos.
 export const useMailTransport = (transport: MailTransport | null) => {
   overrideTransport = transport;
 };
 
 export const mailProviders = ['smtp', 'brevo-api'] as const;
-// Without MAIL_PROVIDER the SMTP setup works as before.
+// Sin MAIL_PROVIDER la configuración SMTP funciona como antes.
 export const mailProvider = () => config.mailProvider || 'smtp';
 
 const currentTransport = (): MailTransport | null => {
@@ -71,7 +71,7 @@ const currentTransport = (): MailTransport | null => {
   return config.nodeEnv === 'production' ? null : consoleTransport;
 };
 
-// Configuration problems, in Spanish, to warn about when the API starts. Mail stays "not configured"; the API keeps working.
+// Problemas de configuración, en español, para avisar al arrancar la API. El correo queda "no configurado"; la API sigue funcionando.
 export const mailSetupProblems = () => {
   const provider = mailProvider();
   if (!(mailProviders as readonly string[]).includes(provider)) return [`MAIL_PROVIDER="${provider}" no es válido: usa smtp o brevo-api. No se enviarán correos.`];
@@ -81,7 +81,7 @@ export const mailSetupProblems = () => {
   return problems;
 };
 
-// The sender as each transport will use it.
+// El remitente tal como lo usará cada transporte.
 export const describeSender = () => {
   if (mailProvider() !== 'brevo-api') return senderAddress();
   const sender = parseSender(config.mailFrom);
@@ -96,7 +96,7 @@ export const sendMail = async (message: MailMessage) => {
   await transport(message);
 };
 
-// Checks the connection and the login (or the API key) without sending anything (used by `npm run mail:test`).
+// Comprueba la conexión y el inicio de sesión (o la clave de la API) sin enviar nada (lo usa `npm run mail:test`).
 export const verifyTransport = async () => {
   if (mailProvider() === 'brevo-api') return verifyBrevo();
   if (!config.smtpHost) throw new Error('SMTP_HOST no está definido.');
@@ -106,7 +106,7 @@ export const verifyTransport = async () => {
 // 10000 -> "10 s", 1500 -> "1,5 s".
 export const formatSeconds = (ms: number) => `${String(Number((ms / 1000).toFixed(1))).replace('.', ',')} s`;
 
-// A short description of a send failure for the logs: never the password, the links or the tokens.
+// Descripción corta de una falla de envío para los logs: nunca la contraseña, los enlaces ni los tokens.
 export const describeMailError = (error: unknown) => {
   if (error instanceof BrevoError) {
     if (error.failure === 'http') return `Brevo ${error.status}${error.detail ? ` · ${error.detail}` : ''}`;
@@ -120,7 +120,7 @@ export const describeMailError = (error: unknown) => {
   return [code, responseCode ? `SMTP ${responseCode}` : '', command ? `comando ${command}` : '', message.slice(0, 200)].filter(Boolean).join(' · ');
 };
 
-// What to check for the usual failures, in Spanish.
+// Qué revisar en las fallas habituales, en español.
 export const mailErrorHint = (error: unknown) => {
   if (error instanceof BrevoError) {
     if (error.status === 401)

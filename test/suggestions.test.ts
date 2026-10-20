@@ -49,9 +49,9 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     assert.equal(result.status, 200);
     assert.deepEqual(result.body.data.map((item: { productName: string; suggestedPercent: number }) => [item.productName, item.suggestedPercent]), [['Leche entera 1 L', 50], ['Pan tajado', 30]]);
     assert.equal(result.body.data[0].reason, 'Vence mañana, tienes 30 unidades (stock alto): sugerimos 50 % de descuento.');
-    // The range proposed when approving: from today until the expiration date.
+    // El rango propuesto al aprobar: de hoy al vencimiento.
     assert.deepEqual([result.body.data[0].proposedStartsOn, result.body.data[0].proposedEndsOn], [today, addDays(today, 1)]);
-    // Asking again does not duplicate pending suggestions.
+    // Pedir otra vez no duplica las sugerencias pendientes.
     assert.equal((await call('GET', '/api/suggestions', undefined, token)).body.data.length, 2);
   });
 
@@ -120,7 +120,7 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     const milk = first.body.data.find((item: { productName: string }) => item.productName === 'Leche entera 1 L');
     const bread = first.body.data.find((item: { productName: string }) => item.productName === 'Pan tajado');
     assert.deepEqual([milk.source, milk.suggestedPercent, milk.reason], ['ai', 50, 'La leche vence mañana y tienes mucha: el 50 % ayuda a venderla hoy.']);
-    // The bread text invented a 90 %, so the rule text stays.
+    // El texto del pan inventó un 90 %, así que se queda el texto de las reglas.
     assert.deepEqual([bread.source, bread.suggestedPercent], ['local', 30]);
     assert.equal(providerCalls, 1);
 
@@ -128,15 +128,15 @@ describe('suggestions API', { skip: integrationSkip }, () => {
     await call('GET', '/api/suggestions', undefined, token);
     assert.equal(providerCalls, 1, 'texts are stored once, not requested on every visit');
 
-    // A product added later the same day gets the rule text: still one call per store per day.
+    // Un producto agregado más tarde el mismo día recibe el texto de las reglas: sigue siendo una llamada por local al día.
     await call('POST', '/api/products', { name: 'Queso campesino', category: 'Lácteos', price: 9000, stock: 4, expirationDate: addDays(today, 2) }, token);
     const sameDay = (await call('GET', '/api/suggestions', undefined, token)).body.data.find((item: { productName: string }) => item.productName === 'Queso campesino');
     assert.equal(sameDay.source, 'local');
     assert.equal(providerCalls, 1);
 
-    // The next day the store gets one new batch with all its suggestions.
+    // Al día siguiente el local recibe un lote nuevo con todas sus sugerencias.
     const { refreshSuggestions } = await import('../src/services/suggestions.js');
-    const storeId = (await call('GET', '/api/stores/me', undefined, token)).body.data.id as string;
+    const storeId = (await call('GET', '/api/stores/mine', undefined, token)).body.data[0].id as string;
     await refreshSuggestions(storeId, addDays(today, 1));
     assert.equal(providerCalls, 2);
   });

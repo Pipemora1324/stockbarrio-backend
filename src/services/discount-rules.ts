@@ -20,7 +20,7 @@ export interface DiscountSuggestion {
   reason: string;
 }
 
-// Base discount by days left before expiration. Products with more days left get no suggestion.
+// Descuento base según los días que faltan para vencer. Con más días no hay sugerencia.
 export const expirationTiers: ReadonlyArray<{ maxDays: number; percent: number; label: string }> = [
   { maxDays: 0, percent: 50, label: 'vence hoy' },
   { maxDays: 1, percent: 40, label: 'vence mañana' },
@@ -29,16 +29,16 @@ export const expirationTiers: ReadonlyArray<{ maxDays: number; percent: number; 
   { maxDays: 14, percent: 10, label: 'vence en {days} días' },
 ];
 
-// Extra points when there is more stock than the store can usually sell before the date. There is no sales data,
-// so nothing here talks about "rotation": only the stock and the days left are used.
+// Puntos extra cuando hay más stock del que la tienda suele vender antes de la fecha. No hay datos de ventas,
+// así que nada aquí habla de "rotación": solo se usan el stock y los días que faltan.
 export const stockBonuses: ReadonlyArray<{ minStock: number; percent: number }> = [
   { minStock: 30, percent: 10 },
   { minStock: 15, percent: 5 },
 ];
 
-// Only perishable products get automatic suggestions (accent-free names of the catalog categories).
-// Canned food, grains, drinks, cleaning products and the rest are never suggested, although the store can
-// still put any product on offer by hand.
+// Solo los productos perecederos reciben sugerencias automáticas (nombres sin tildes de las categorías del catálogo).
+// Enlatados, granos, bebidas, productos de aseo y el resto nunca se sugieren, aunque la tienda puede
+// poner cualquier producto en oferta a mano.
 export const perishableCategories = ['frutas y verduras', 'carnes', 'carnes frias', 'pollo', 'pescados y mariscos', 'lacteos', 'comidas preparadas', 'panaderia', 'huevos'];
 export const maxSuggestedPercent = 70;
 
@@ -56,7 +56,7 @@ export const priceWithDiscount = (price: number, percent: number) => Math.max(0,
 
 export const suggestDiscount = (item: InventoryItem, today: string): DiscountSuggestion | null => {
   const daysToExpire = daysBetween(today, item.expirationDate);
-  // Expired products must be removed from sale, not discounted; non perishable ones are never suggested.
+  // Los productos vencidos se retiran de la venta, no se rebajan; los no perecederos nunca se sugieren.
   if (daysToExpire < 0 || item.stock <= 0 || !isPerishable(item.category)) return null;
   const tier = expirationTiers.find((candidate) => daysToExpire <= candidate.maxDays);
   if (!tier) return null;
@@ -84,7 +84,7 @@ export const suggestDiscount = (item: InventoryItem, today: string): DiscountSug
   };
 };
 
-// Most urgent first: fewer days left, then the bigger discount.
+// Lo más urgente primero: menos días para vencer y luego el mayor descuento.
 export const analyzeInventory = (items: InventoryItem[], today: string): DiscountSuggestion[] =>
   items
     .map((item) => suggestDiscount(item, today))

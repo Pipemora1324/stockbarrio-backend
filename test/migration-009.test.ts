@@ -18,7 +18,7 @@ describe('migration 009 (several stores and offer dates)', { skip: integrationSk
     const { rows } = await pool.query<{ name: string }>('SELECT current_database() AS name');
     assert.match(rows[0].name, /_test$/);
     await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-    // The database as production has it today: every migration before 009.
+    // La base como la tiene producción hoy: todas las migraciones anteriores a la 009.
     previousDirectory = await mkdtemp(join(tmpdir(), 'migraciones-'));
     const { listMigrationFiles, migrate } = await import('../src/migrate.js');
     for (const file of (await listMigrationFiles(migrationsDirectory)).filter((name) => name < '009')) await copyFile(join(migrationsDirectory, file), join(previousDirectory, file));
@@ -34,7 +34,7 @@ describe('migration 009 (several stores and offer dates)', { skip: integrationSk
     const user = await pool.query<{ id: string }>(`INSERT INTO users (name, email, password_hash, role, auth_id) VALUES ('Ana', 'ana@stockbarrio.test', 'hash', 'store', gen_random_uuid()) RETURNING id`);
     const store = await pool.query<{ id: string }>(`INSERT INTO stores (user_id, name, neighborhood, address, phone) VALUES ($1, 'Tienda Ana', 'Suba', 'Calle 1 # 2-3', '3001234567') RETURNING id`, [user.rows[0].id]);
     await pool.query('UPDATE users SET store_id = $1 WHERE id = $2', [store.rows[0].id, user.rows[0].id]);
-    // Before 009 a second store for the same user was impossible.
+    // Antes de la 009 era imposible un segundo local para el mismo usuario.
     await assert.rejects(pool.query(`INSERT INTO stores (user_id, name, neighborhood, address) VALUES ($1, 'Otra', 'Suba', 'Calle 2')`, [user.rows[0].id]), { code: '23505' });
     const expiration = addDays(today, 5);
     await pool.query(
@@ -45,7 +45,7 @@ describe('migration 009 (several stores and offer dates)', { skip: integrationSk
     const before = await pool.query(`SELECT (SELECT count(*) FROM users) AS users, (SELECT count(*) FROM stores) AS stores, (SELECT count(*) FROM products) AS products`);
 
     const { migrate } = await import('../src/migrate.js');
-    assert.deepEqual(await migrate(migrationsDirectory), ['009_multi_store_offer_dates.sql']);
+    assert.equal((await migrate(migrationsDirectory))[0], '009_multi_store_offer_dates.sql');
 
     const afterCounts = await pool.query(`SELECT (SELECT count(*) FROM users) AS users, (SELECT count(*) FROM stores) AS stores, (SELECT count(*) FROM products) AS products`);
     assert.deepEqual(afterCounts.rows, before.rows);

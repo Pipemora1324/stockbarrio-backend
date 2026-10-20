@@ -21,18 +21,16 @@ export interface ProductRecord {
 }
 
 export interface ProductFilters {
-  neighborhood?: string;
   category?: string;
-  search?: string;
 }
 
-// Saved values, for the store that owns the product.
+// Valores guardados, para el local dueño del producto.
 const productColumns = `p.id, p.store_id AS "storeId", p.name, p.category, p.description, p.price, p.offer_price AS "offerPrice",
   p.stock, p.expiration_date AS "expirationDate", p.discount_percent AS "discountPercent",
   p.offer_starts_on AS "offerStartsOn", p.offer_ends_on AS "offerEndsOn", p.image_url AS "imageUrl",
   p.active, p.created_at AS "createdAt"`;
 
-// What customers see: the discount and its dates only while the offer is active today, otherwise the normal price.
+// Lo que ven los clientes: el descuento y sus fechas solo mientras la oferta está activa hoy; si no, el precio normal.
 const publicColumns = (todayParam: string) => {
   const active = activeOfferSql(todayParam);
   return `p.id, p.store_id AS "storeId", p.name, p.category, p.description, p.price,
@@ -53,17 +51,12 @@ const parameters = (initial: unknown[] = []) => {
   return { params, add };
 };
 
-// Catalog conditions: products on sale that are not expired and have no active offer (those live in Ofertas).
-// $1 is always today's date.
+// Condiciones del catálogo: todo producto activo y no vencido de un local activo, con oferta o sin ella.
+// $1 siempre es la fecha de hoy.
 export const buildProductFilters = (filters: ProductFilters, today: string) => {
   const { params, add } = parameters([today]);
-  const conditions = ['p.active = true', 's.active = true', 'p.expiration_date >= $1::date', `NOT ${activeOfferSql('$1')}`];
-  if (filters.neighborhood) conditions.push(`s.neighborhood ILIKE ${add(`%${filters.neighborhood}%`)}`);
+  const conditions = ['p.active = true', 's.active = true', 'p.expiration_date >= $1::date'];
   if (filters.category) conditions.push(`lower(p.category) = lower(${add(filters.category)})`);
-  if (filters.search) {
-    const placeholder = add(`%${filters.search}%`);
-    conditions.push(`(p.name ILIKE ${placeholder} OR p.description ILIKE ${placeholder})`);
-  }
   return { where: conditions.join(' AND '), params };
 };
 
@@ -80,11 +73,11 @@ export interface CatalogRow extends ProductRecord {
   phone: string;
 }
 
-// Lowercase and accent-free text of a product, so "lacteos" matches "Lácteos".
+// Texto del producto en minúsculas y sin tildes, para que "lacteos" encuentre "Lácteos".
 const searchableText = `translate(lower(p.name || ' ' || p.category || ' ' || p.description), 'áéíóúüñ', 'aeiouun')`;
 
 export const productRepository = {
-  // Products for the assistant: prices and discounts as customers see them today.
+  // Productos para el asistente: precios y descuentos como los ven los clientes hoy.
   search: async (terms: string[], options: { neighborhood?: string; category?: string; maxPrice?: number; onlyDiscounted?: boolean; matchAll: boolean; limit: number; today: string }) => {
     const { params, add } = parameters([options.today]);
     const termConditions = terms.map((term) => `${searchableText} LIKE ${add(`%${term}%`)}`);
@@ -102,7 +95,7 @@ export const productRepository = {
     );
     return result.rows;
   },
-  // Catalog: no active offers, grouped later by store (ordered here by store and product name).
+  // Catálogo, que luego se agrupa por local (aquí se ordena por local y por nombre). Las ofertas muestran su precio de hoy.
   list: async (filters: ProductFilters, today: string) => {
     const { where, params } = buildProductFilters(filters, today);
     const result = await database.query<CatalogRow>(
@@ -113,7 +106,7 @@ export const productRepository = {
     );
     return result.rows;
   },
-  // Products whose offer is active today, can be bought and are not expired (Bogota calendar).
+  // Productos con la oferta activa hoy, con stock y sin vencer (calendario de Bogotá).
   listOffers: async (filters: { neighborhood?: string; category?: string; search?: string; today: string; limit: number }) => {
     const { params, add } = parameters([filters.today]);
     const conditions = ['p.active = true', 's.active = true', 'p.stock > 0', activeOfferSql('$1')];
@@ -128,19 +121,18 @@ export const productRepository = {
     );
     return result.rows;
   },
-  // Full inventory of a store, with the saved offer values (for its owner).
+  // Inventario completo de un local, con los valores guardados de la oferta (para su dueño).
   listByStore: async (storeId: string) =>
-    (await database.query<ProductRecord>(`SELECT ${productColumns} FROM products p WHERE p.store_id = $1 AND p.active = true ORDER BY p.expiration_date ASC, lower(p.name)`, [storeId])).rows,
-  // Public products of one store, as customers see them today.
-  listPublicByStore: async (storeId: string, today: string) =>
     (
       await database.query<ProductRecord>(
-        `SELECT ${publicColumns('$2')} FROM products p JOIN stores s ON s.id = p.store_id
-         WHERE p.store_id = $1 AND p.active = true AND s.active = true AND p.expiration_date >= $2::date ORDER BY p.expiration_date ASC, lower(p.name)`,
-        [storeId, today],
+        `SELECT ${productColumns} FROM products p JOIN stores s ON s.id = p.store_id
+         WHERE p.store_id = $1 AND p.active = true AND s.active = true ORDER BY p.expiration_date ASC, lower(p.name)`,
+        [storeId],
       )
     ).rows,
-  getById: async (id: string) => (await database.query<ProductRecord>(`SELECT ${productColumns} FROM products p WHERE p.id = $1 AND p.active = true`, [id])).rows[0],
+  // El producto de un local eliminado ya no existe para nadie, ni para su dueño.
+  getById: async (id: string) =>
+    (await database.query<ProductRecord>(`SELECT ${productColumns} FROM products p JOIN stores s ON s.id = p.store_id WHERE p.id = $1 AND p.active = true AND s.active = true`, [id])).rows[0],
   upsert: async (
     product: Partial<ProductRecord> & { id?: string; storeId: string; name: string; price: number; stock: number; expirationDate: string; discountPercent: number; offerStartsOn: string | null; offerEndsOn: string | null },
   ) => {

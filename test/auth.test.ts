@@ -92,9 +92,9 @@ describe('authentication API', { skip: integrationSkip }, () => {
     assert.equal(asCustomer.status, 403);
     assert.match(asCustomer.body.message, /Solo las tiendas/);
     assert.equal((await call('GET', '/api/products/mine', undefined, customer.token)).status, 403);
-    assert.equal((await call('GET', '/api/stores/me', undefined, customer.token)).status, 403);
+    assert.equal((await call('GET', '/api/stores/mine', undefined, customer.token)).status, 403);
 
-    // A store account whose store row is missing cannot act on behalf of any store.
+    // Una cuenta de tienda sin la fila de su local no puede actuar a nombre de ningún local.
     const orphan = await context.pool.query<{ id: string }>(`INSERT INTO users (name, email, password_hash, role) VALUES ('Sin Tienda', 'sintienda@stockbarrio.test', 'x', 'store') RETURNING id`);
     const orphanToken = createToken({ id: orphan.rows[0].id, name: 'Sin Tienda', email: 'sintienda@stockbarrio.test', role: 'store' });
     const result = await call('POST', '/api/products', product, orphanToken);

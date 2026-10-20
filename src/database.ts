@@ -2,7 +2,7 @@ import pg, { type PoolClient, type QueryResultRow } from 'pg';
 import { config } from './config.js';
 
 const { Pool, types } = pg;
-// DATE columns stay as plain 'YYYY-MM-DD' strings so no timezone shifts the day.
+// Las columnas DATE se quedan como texto 'AAAA-MM-DD' para que ninguna zona horaria corra el día.
 types.setTypeParser(types.builtins.DATE, (value) => value);
 types.setTypeParser(types.builtins.NUMERIC, (value) => Number(value));
 

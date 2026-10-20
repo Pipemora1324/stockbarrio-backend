@@ -12,7 +12,7 @@ const jwksUrl = `${projectUrl}/auth/v1/.well-known/jwks.json`;
 const issuer = `${projectUrl}/auth/v1`;
 const sharedSecret = 'secreto-hs256-de-prueba-con-mas-de-32-caracteres';
 
-// Test keys made on the fly: the ES256 one is published in a simulated JWKS, the other one is an impostor.
+// Claves de prueba creadas al vuelo: la ES256 se publica en un JWKS simulado y la otra es la impostora.
 const signing = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const impostor = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const publicJwk = { ...signing.publicKey.export({ format: 'jwk' }), kid: 'clave-1', alg: 'ES256', use: 'sig' };
@@ -37,7 +37,7 @@ const tokenFor = ({ sub = randomUUID(), email = 'ana@correo.co', verified = true
   return jwt.sign(payload, (key === 'es256' ? signing : impostor).privateKey, { ...options, algorithm: 'ES256', keyid: kid });
 };
 
-// The JWKS endpoint answers from memory; every other request (the API under test) goes through.
+// El endpoint JWKS responde desde memoria; todas las demás peticiones (la API que se prueba) pasan.
 const simulateJwks = (answer: () => Response = () => new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 })) => {
   const calls: string[] = [];
   const realFetch = globalThis.fetch;
@@ -154,8 +154,8 @@ describe('API with AUTH_PROVIDER=supabase', { skip: integrationSkip }, () => {
     const token = tokenFor({ email: 'tienda.supa@stockbarrio.test', metadata: storeMetadata });
     const me = await call('GET', '/api/auth/me', undefined, token);
     assert.equal(me.body.user.role, 'store');
-    const store = await call('GET', '/api/stores/me', undefined, token);
-    assert.deepEqual([store.body.data.name, store.body.data.neighborhood, store.body.data.phone], ['Tienda Supa', 'Chapinero', '3101234567']);
+    const [store] = (await call('GET', '/api/stores/mine', undefined, token)).body.data;
+    assert.deepEqual([store.name, store.neighborhood, store.phone], ['Tienda Supa', 'Chapinero', '3101234567']);
     assert.equal((await call('POST', '/api/products', product, token)).status, 201);
     const repeated = await call('GET', '/api/auth/me', undefined, tokenFor({ email: 'otra.tienda@stockbarrio.test', metadata: { ...storeMetadata, storeName: 'tienda supa' } }));
     assert.equal(repeated.status, 409);
@@ -181,6 +181,19 @@ describe('API with AUTH_PROVIDER=supabase', { skip: integrationSkip }, () => {
     const other = await call('GET', '/api/auth/me', undefined, tokenFor({ email, metadata: { name: 'Una Sola' } }));
     assert.equal(other.status, 409);
     assert.match(other.body.message, /ya está vinculado/);
+  });
+
+  it('treats Gmail variants with dots or googlemail.com as the same mailbox: links the old account, never a second one', async () => {
+    config.authProvider = 'legacy';
+    const legacy = await call('POST', '/api/auth/register', { accountType: 'customer', name: 'Pedro Gómez', email: 'pedro.gomez@gmail.com', password: 'cliente12345' });
+    useSupabase();
+    const linked = await call('GET', '/api/auth/me', undefined, tokenFor({ email: 'pedrogomez@googlemail.com', metadata: { name: 'Pedro Gómez' } }));
+    assert.equal(linked.status, 200);
+    assert.equal(linked.body.user.id, legacy.body.user.id);
+    const second = await call('GET', '/api/auth/me', undefined, tokenFor({ email: 'p.e.d.r.o.gomez@gmail.com', metadata: { name: 'Pedro Gómez' } }));
+    assert.equal(second.status, 409);
+    const accounts = await context.pool.query(`SELECT count(*)::int AS count FROM users WHERE email LIKE '%gomez@%'`);
+    assert.equal(accounts.rows[0].count, 1);
   });
 
   it('answers 403 when the email is not confirmed, and links nothing', async () => {

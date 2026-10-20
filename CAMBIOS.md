@@ -434,3 +434,47 @@ Ninguna en Render. `ADMIN_EMAIL` y `ADMIN_PASSWORD` ahora son para `npm run admi
 7. **Chat:** "Tiendas cercanas" → el bot pregunta el barrio → escribe uno con tiendas → muestra los locales y sus ofertas; luego "leche" busca solo en ese barrio.
 8. **Seed:** `NODE_ENV=production npm run seed:dev` debe negarse.
 9. **Limpieza:** en una copia de la base, corre `docs/LIMPIEZA_DATOS.sql` (primero con `ROLLBACK`).
+
+## Ajustes al probar como usuario (rama `ajustes`)
+
+### Plan de limpieza (escrito antes de borrar)
+
+Se quita solo código que nadie usa. No se borra ninguna tabla, columna ni migración, y se conserva `AUTH_PROVIDER=legacy` como ruta de regreso.
+
+| Qué se quita | Por qué |
+| --- | --- |
+| `POST /api/assistant/search`, `searchAssistant` y la interpretación con IA que solo usaba esa ruta | El frontend usa el chat (`/api/assistant/chat`) desde hace varias rondas; esta ruta no la llama nadie |
+| `GET /api/stores/:id`, `GET /api/stores/me` y `storeRepository.getById` | El frontend lista los locales públicos con `GET /api/stores` y los propios con `GET /api/stores/mine` |
+| `GET /api/products/store/:storeId` y `productRepository.listPublicByStore` | Ninguna pantalla muestra los productos de un solo local por esta ruta: el catálogo ya viene agrupado |
+| `GET /api/products` (catálogo plano) y los filtros `neighborhood` y `search` del catálogo | Era para el frontend anterior; el actual usa `GET /api/products/catalog?category=` |
+| `GET /api/stores/neighborhoods` | Solo lo usaba la pantalla de alertas. El chat sigue leyendo los barrios directo del repositorio |
+| Alertas y notificaciones: `routes/alerts.ts`, `routes/notifications.ts`, `repositories/alert.ts`, `services/notifications.ts`, el aviso al aprobar descuentos, las alertas del cliente de prueba del seed y `test/notifications.test.ts` | Estaban apagadas desde hace varias rondas y no se van a reactivar; las tablas `alert_subscriptions` y `notifications` se quedan en la base sin uso |
+| Variables `ENABLE_ALERTS` y `NOTIFICATIONS_DAILY_LIMIT` | Ya no hay nada que encender |
+| `requireAdmin` | Ninguna ruta lo usa |
+| `isOfferActive` | Solo lo usaban las pruebas; el código usa `offerStatus` |
+| Comentarios obvios, y el resto pasa a español | Regla del proyecto: código en inglés; comentarios, errores y logs en español |
+
+### Qué cambió
+
+1. **Eliminar un local quita sus productos.** En la misma transacción que desactiva el local se desactivan todos sus productos (`active = false`), y todas las consultas (Ofertas, catálogo, chat, inicio, sugerencias, inventario y edición) excluyen los productos de locales inactivos. La migración `010_deactivate_orphan_products.sql` desactiva con un solo `UPDATE` idempotente los productos que habían quedado huérfanos: no borra filas y no puede fallar por los datos existentes.
+2. **El catálogo muestra todos los productos**, también los que están en oferta (con su precio con descuento). Corrige la regla de la ronda anterior. Ofertas sigue mostrando solo las ofertas activas.
+3. **Un correo, una cuenta.**
+   - **Diagnóstico:** en modo legacy el mismo correo en otra combinación de mayúsculas ya daba 409, pero el mismo buzón de Gmail podía tener cuatro cuentas (`ana.perez`, `anaperez`, `a.n.a.perez@googlemail.com` y `ana.perez+tienda`), y cualquier proveedor aceptaba alias con `+`. En modo supabase pasaba lo mismo (Supabase también trata esas variantes como correos distintos) y, además, un registro con un correo ya confirmado devolvía un usuario ofuscado sin error, así que la app decía "Revisa tu correo" sin haber enviado nada.
+   - **Arreglo:** forma canónica del correo (sin puntos ni `+etiqueta` para gmail.com y googlemail.com), comprobación en el registro y en el cambio de correo, `POST /api/auth/check-email` con límite por IP para que el frontend pregunte antes de registrar, alias con `+` rechazados en cuentas nuevas y vinculación al mismo buzón en modo supabase. Sin migraciones ni índices únicos.
+4. **Limpieza** según el plan de arriba. Además, los comentarios del código pasaron a español; los de las migraciones 001 a 009 se dejaron como estaban porque ya se aplicaron en producción y son el registro histórico.
+
+### Migraciones
+
+- `010_deactivate_orphan_products.sql`: un `UPDATE` idempotente, sin `DELETE`.
+
+### Variables
+
+Ninguna nueva. Se quitan `ENABLE_ALERTS` y `NOTIFICATIONS_DAILY_LIMIT` (si están en Render, se pueden borrar; si se quedan, no hacen nada).
+
+### Pruebas manuales
+
+1. **Eliminar un local:** crea un local con un producto en oferta, revisa que aparece en Ofertas, el catálogo y el chat, elimina el local y comprueba que desapareció de los tres y del inicio.
+2. **Catálogo:** un producto en oferta aparece en el catálogo con "En oferta", el precio con descuento y el original tachado; uno sin oferta, con su precio normal.
+3. **Correo repetido:** registra `nombre.apellido@gmail.com`; luego intenta `nombreapellido@gmail.com`, `NOMBRE.APELLIDO@gmail.com` y `nombre.apellido@googlemail.com`: las tres muestran "Este correo ya está vinculado a una cuenta…". Con `nombre+x@gmail.com` aparece "No uses alias con +…".
+4. **Modo supabase:** regístrate con un correo ya confirmado: debe decir que ya está vinculado. Con uno registrado y sin confirmar: "Ya te enviamos un correo de confirmación" y el botón para reenviarlo.
+5. **Rutas quitadas:** `GET /api/stores/neighborhoods`, `GET /api/stores/me`, `GET /api/products/store/<id>` y `POST /api/assistant/search` responden 404.

@@ -55,6 +55,8 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 | `offer-rules.test.ts` | Unitaria | Estado de la oferta (programada, activa, terminada) con los dos días incluidos, cambio de día a la medianoche de Bogotá (04:59 y 05:00 UTC), inicio hoy, fin el día del vencimiento, inicio en el pasado, fin antes del inicio o después del vencimiento, producto vencido, oferta en curso que conserva su inicio, edición sin tocar la oferta, clientes viejos sin fechas |
 | `offer-dates.test.ts` | Integración | Ofertas con rango por la API: mensajes en español, producto vencido sin oferta (pero editable), clientes viejos con el rango por defecto, oferta programada que aparece el día que empieza, expiración automática sin tareas programadas (vuelve al catálogo con precio normal y el panel la marca terminada), catálogo agrupado por local sin ofertas activas ni vencidos, filtro por categoría, ofertas por mayor descuento, conteos por local, chat y recomendador solo con ofertas activas |
 | `chat-stores.test.ts` | Unitaria e integración | "Tiendas cercanas" sin barrio: el bot lo pregunta, la respuesta se usa como barrio (y se devuelve para recordarlo), tiendas con sus ofertas activas de hoy, barrio sin tiendas, barrio ya recordado, búsquedas filtradas por ese barrio, "Ofertas de hoy" sin ofertas |
+| `one-email.test.ts` | Unitaria e integración | Forma canónica del correo (puntos, `+etiqueta`, `googlemail.com`, mayúsculas y espacios en Gmail; los demás proveedores solo en minúsculas), mismo correo dos veces, mayúsculas, variantes con puntos (también para tiendas), alias con `+` rechazados en cuentas nuevas pero aceptados en login y recuperación, `check-email` (libre, ocupado, `+`, inválido) y su límite por IP |
+| `migration-010.test.ts` | Integración | Aplica 001 a 009, crea locales activos e inactivos con productos y aplica la 010: solo se desactivan los productos de locales inactivos, no se borra nada y correrla otra vez no cambia nada; es un solo `UPDATE` |
 | `scripts.test.ts` | Unitaria e integración | `seed:dev` se niega con `NODE_ENV=production` y carga en la base de pruebas un vendedor con dos locales y ofertas con rango válido, dos veces sin duplicar; `admin:create` exige las variables y una contraseña larga, crea una vez y luego actualiza, nunca convierte una tienda en admin y no crea datos de ejemplo |
 | `stores.test.ts` | Integración | Tiendas por barrio y nombre, 404, la tienda solo como texto (ninguna respuesta trae coordenadas y ya no hay ruta para guardarlas), productos públicos, borrado, edición con fecha pasada y categoría antigua, stock en 0, JSON roto, rutas inexistentes, error 500 sin detalles |
 | `validation.test.ts` | Unitaria e integración | Reglas de nombres, teléfonos, correos, contraseñas, productos, categorías y fechas, con mensajes en español |
@@ -62,9 +64,8 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 | `suggestions.test.ts` | Unitaria e integración | Sugerencias por urgencia con el rango propuesto (de hoy al vencimiento), aprobación con fechas, rechazo, otras tiendas fuera, explicaciones de IA una vez al día y sin números inventados |
 | `chat.test.ts` | Unitaria e integración | Reglas primero, intención, "cerca de mí" (pide el barrio o filtra por el barrio del mensaje o del chat), presupuestos, datos personales, tamaño del prompt, límites por minuto y por día, anti-alucinación (precios y porcentajes en cualquier formato, y ninguna distancia), proveedor principal y respaldo, JSON inválido, tiempo de espera, todos caídos, temas ajenos, caché |
 | `llm.test.ts` | Unitaria | Cadena de modelos, 429 con `Retry-After`, cupo diario, presupuestos de tokens, razonamiento oculto, claves fuera de los logs |
-| `assistant.test.ts`, `search-intent.test.ts` | Unitaria e integración | Búsqueda en español, orden, barrio del mensaje o elegido como filtro, "cerca de mí" sin barrio, coordenadas de clientes viejos ignoradas |
+| `assistant.test.ts`, `search-intent.test.ts` | Unitaria e integración | Búsqueda en español que usa el chat (`findResults`): orden, más barato primero, sin vencidos, barrio recordado o escrito en el mensaje, "cerca de mí" sin barrio |
 | `offers.test.ts` | Integración | Solo productos con descuento y stock, filtros, orden por vencimiento, ya no hay orden por cercanía ni distancias, una oferta dura hasta el final de su día |
-| `notifications.test.ts` | Unitaria e integración | Alertas y notificaciones por barrio, sin ubicación; las alertas antiguas por radio no avisan (pausadas con `ENABLE_ALERTS`; la suite las enciende para probarlas) |
 | `dates.test.ts` | Unitaria | Cambio de día en Bogotá, bisiestos |
 | `mailer.test.ts` | Unitaria | SMTP con TLS en el 465 y STARTTLS obligatorio en el 587, timeouts de 10 s, contraseña de aplicación de Gmail sin espacios, remitente por defecto, texto y HTML, errores descritos sin claves, enlaces ni tokens, pistas para Gmail y Brevo, plantillas en español, `mail:test` sin imprimir la contraseña; consola en desarrollo y 503 en producción sin SMTP |
 | `brevo.test.ts` | Unitaria e integración | API HTTPS de Brevo con `fetch` simulado: envío con la cabecera `api-key` y las mismas plantillas, 401 (clave), 400 (remitente no verificado), tiempo agotado y red caída descritos sin la clave ni datos de la persona, "correo no configurado" sin `BREVO_API_KEY` o `MAIL_FROM`, `mail:test` con Brevo, recuperación completa por la API y misma respuesta si Brevo falla |
@@ -72,22 +73,21 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 
 ## Resultado actual
 
-276 pruebas, todas en verde con Node 24 en local y Node 20 en el CI.
+273 pruebas, todas en verde con Node 24 en local y Node 20 en el CI.
 
-| Métrica | Supabase Auth | Ahora (rediseño) |
+| Métrica | Rediseño | Ahora (ajustes) |
 | --- | --- | --- |
-| Pruebas | 220 | 276 |
-| Líneas | 97,7 % | 97,55 % |
-| Ramas | 87,6 % | 88,74 % |
+| Pruebas | 276 | 273 |
+| Líneas | 97,55 % | 97,8 % |
+| Ramas | 88,74 % | 89,02 % |
 | Funciones | 100 % | 100 % |
 
-`seed-dev.ts` y `create-admin.ts` ahora entran en la cobertura (antes `seed.ts` estaba excluido) y se prueban de verdad contra la base de pruebas; por eso las líneas bajan una décima aunque hay 56 pruebas más.
+Hay menos pruebas porque se quitaron las de alertas y notificaciones (ya no existen) y las de las rutas sin uso; se agregaron las de esta ronda (correo y cuenta, borrado de locales con sus productos, catálogo completo y migración 010).
 
 Lo que queda sin cubrir es sobre todo:
 
 - los `catch (error) { next(error) }` de las rutas, que solo se alcanzan si la base falla;
 - el bloque de `migrate.ts` que corre al ejecutar el archivo directamente;
-- las rutas de notificaciones, que están pausadas.
 
 La caída de ramas en `config.ts` no es una pérdida real: `test/setup.ts` fija las variables de entorno, así que ya no se recorren los valores por defecto.
 

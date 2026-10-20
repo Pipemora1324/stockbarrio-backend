@@ -13,10 +13,10 @@ El frontend (Angular) está en un repositorio aparte: [stockbarrio-frontend](htt
 - **Productos por local**, con stock, precios en pesos, fecha de vencimiento y ofertas con **rango de fechas**: una oferta solo se ve entre su fecha de inicio y su fecha de finalización (hora de Bogotá).
 - **Descuentos sugeridos** solo para productos perecederos por vencer, con reglas claras (días para vencer y stock alto). La tienda los aprueba eligiendo las fechas de la oferta, o los rechaza. Nada se aplica sin aprobación.
 - **Asistente de chat** en español ("busco huevos baratos", "ofertas de hoy", "tiendas cercanas"). Ordena por precio, descuento, categoría o vencimiento y usa solo ofertas activas. La cercanía es solo por barrio: si el cliente pide tiendas o productos cerca sin decir el barrio, el asistente se lo pregunta en la conversación y lo devuelve en `intent.neighborhood` para que la app lo recuerde (solo en memoria).
-- **Alertas y notificaciones dentro de la app** (pausadas con `ENABLE_ALERTS=false`).
 - **IA opcional.** Todo funciona en local sin claves. Con un proveedor compatible con OpenAI se pueden mejorar textos y orden, pero su respuesta se valida siempre con Zod y contra el stock, las cantidades y los límites; si falla, se usan las reglas locales.
 - **Ofertas** activas hoy, filtradas por categoría y ordenadas por mayor descuento.
-- **Catálogo** sin los productos en oferta, agrupado por local y filtrado por categoría.
+- **Catálogo** con todos los productos activos (los que están en oferta, con su precio de hoy), agrupado por local y filtrado por categoría.
+- **Un correo, una cuenta.** El registro compara el buzón: las variantes de Gmail con puntos, `+etiqueta` o `googlemail.com` cuentan como el mismo correo, y las cuentas nuevas no aceptan alias con `+`.
 - **Cuenta**: recuperar contraseña por correo, perfil para cambiar nombre, contraseña y correo.
 - **Seguridad**: validación con Zod (nombres, teléfono colombiano, correo, contraseña y productos), CORS, Helmet y límite de peticiones.
 
@@ -76,8 +76,6 @@ Levanta PostgreSQL (puerto 5432) y la API (puerto 3000). Puedes sobrescribir `JW
 | `OPENAI_MODEL` | Modelo a usar | `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | URL base del proveedor | `https://api.openai.com/v1` |
 | `AI_TIMEOUT_MS` | Tiempo máximo de espera del proveedor | `8000` |
-| `ENABLE_ALERTS` | `true` activa las alertas y notificaciones. Apagadas, los endpoints responden, pero aprobar descuentos no genera notificaciones | `false` |
-| `NOTIFICATIONS_DAILY_LIMIT` | Máximo de notificaciones por cliente al día (hora de Bogotá) | `10` |
 | `AI_MODELS` | Cadena de modelos del principal, separados por comas. Si no está, se usa solo `OPENAI_MODEL` | vacío |
 | `AI_FALLBACK_BASE_URL` / `AI_FALLBACK_API_KEY` | Proveedor de respaldo compatible con OpenAI (opcional) | vacío |
 | `AI_FALLBACK_MODELS` | Cadena de modelos del respaldo (también acepta un solo `AI_FALLBACK_MODEL`) | vacío |
@@ -168,27 +166,21 @@ Sin `TEST_DATABASE_URL` solo corren las pruebas unitarias. Las pruebas se niegan
 | `POST /api/auth/register` | Público | Crea una tienda (con `storeName`, `neighborhood` y `address`) o un cliente (`accountType: "customer"`) |
 | `POST /api/auth/login` | Público | Inicia sesión |
 | `GET /api/auth/me` | Con sesión | Valida el token y devuelve el usuario |
-| `GET /api/products/catalog?category=` | Público | Catálogo agrupado por local (`{ data: [{ store, products }], total }`), sin productos vencidos ni con oferta activa |
-| `GET /api/products` | Público | El mismo catálogo como lista plana (clientes viejos); acepta `category`, `neighborhood` y `search` |
+| `POST /api/auth/check-email` | Público (10 por minuto y 60 por hora, por IP) | `{ email }` → `{ available }` o `{ available: false, message }` si ese buzón ya tiene cuenta. Lo usa el registro en los dos modos de autenticación |
+| `GET /api/products/catalog?category=` | Público | Catálogo agrupado por local (`{ data: [{ store, products }], total }`), con todos los productos activos y no vencidos de locales activos. Los que están en oferta traen su precio con descuento, `discountPercent` y `offerEndsOn` |
 | `GET /api/products/mine?storeId=` | Tienda | Inventario de un local propio (sin `storeId`, el principal), con `offerStatus` (`none`, `scheduled`, `active`, `ended`) y `expired`; también devuelve `store`, `stores` y `today` |
-| `GET /api/products/store/:storeId` | Público | Productos de un local, con el precio que ven los clientes hoy |
 | `POST /api/products` · `PUT /api/products/:id` · `DELETE /api/products/:id` | Tienda dueña | Crear (en el local de `storeId` o en el principal), editar y borrar productos. Aceptan `offerStartsOn` y `offerEndsOn` |
-| `GET /api/stores` · `GET /api/stores/:id` | Público | Locales activos, con `productCount` y `offerCount` (ofertas activas hoy) |
-| `GET /api/stores/neighborhoods` | Público | Barrios con locales activos |
+| `GET /api/stores` | Público | Locales activos, con `productCount` y `offerCount` (ofertas activas hoy) |
 | `GET /api/stores/mine` | Tienda | Todos los locales del vendedor, el principal primero, y el máximo permitido (`max`) |
-| `POST /api/stores` · `PATCH /api/stores/:id` · `DELETE /api/stores/:id` | Tienda dueña | Crear, editar o eliminar un local (eliminar es lógico: deja de verse, pero no se borran filas) |
-| `GET /api/stores/me?storeId=` | Tienda | Datos del local principal (o del de `storeId`) |
+| `POST /api/stores` · `PATCH /api/stores/:id` · `DELETE /api/stores/:id` | Tienda dueña | Crear, editar o eliminar un local. Eliminar es lógico y desactiva también todos sus productos, en la misma transacción: dejan de verse en Ofertas, el catálogo, el chat, el inicio y las sugerencias, pero no se borran filas |
 | `GET /api/suggestions?storeId=` | Tienda | Analiza el inventario del local y devuelve las sugerencias pendientes, con el rango propuesto (`proposedStartsOn`, `proposedEndsOn`) |
 | `POST /api/suggestions/:id/approve?storeId=` · `/:id/reject` · `/approve-all` | Tienda | Aprobar con `{ offerStartsOn?, offerEndsOn? }` (por defecto, de hoy al vencimiento), rechazar o aprobar todas |
-| `POST /api/assistant/search` | Público (30 por minuto) | `{ message, neighborhood? }` → respuesta en español y resultados (la usaba el asistente anterior; el frontend ya no la llama) |
 | `POST /api/assistant/chat` | Público (10 por minuto y 100 por día, por IP y por usuario) | Chat con `{ messages, neighborhood? }` → `{ reply, mode, intent, results, stores }`. `neighborhood` es el barrio que el cliente dio antes en la conversación |
 | `POST /api/offers/search` | Público | Ofertas activas hoy, con filtro `category` (también `neighborhood` y `search`) y orden `discount` (por defecto) o `expiring`. Cada oferta trae `offerStartsOn`, `offerEndsOn` y `offerDaysLeft` |
 | `GET /api/products/categories` | Público | Lista de categorías permitidas |
 | `POST /api/auth/forgot-password` · `POST /api/auth/reset-password` | Público (con límites) | Recuperar la contraseña con un enlace de un solo uso que vence en 30 minutos |
 | `GET /api/account` · `PATCH /api/account/name` · `POST /api/account/password` · `POST /api/account/email` | Con sesión | Perfil: nombre, contraseña (pide la actual) y correo (pide la actual y envía un enlace al correo nuevo) |
 | `POST /api/account/email/confirm` | Público | Confirma el correo nuevo desde el enlace |
-| `GET /api/alerts` · `POST /api/alerts` · `DELETE /api/alerts/:id` | Cliente | Alertas por producto o categoría, barrio y descuento mínimo |
-| `GET /api/notifications` · `GET /unread-count` · `POST /:id/read` · `POST /read-all` | Cliente | Bandeja de notificaciones |
 
 ### Ofertas con rango de fechas
 
@@ -222,23 +214,14 @@ Sobre la base se suman puntos y se ajusta así:
 ### Privacidad
 
 - La API no pide, no guarda y no expone coordenadas: ni del cliente ni de las tiendas. Las columnas `latitude`, `longitude` y `radius_km` siguen en la base (no se borró nada), pero ya no se leen ni se escriben. Si un cliente viejo manda coordenadas, se ignoran.
-- Las alertas antiguas que eran por radio ya no generan avisos: sin distancias no hay forma de saber qué tiendas les quedan cerca.
-- Las notificaciones solo se muestran dentro de la app: no hay canales externos registrados. Para agregar correo o WhatsApp se implementa `NotificationChannel` en `src/services/notifications.ts`.
 
-## Alertas y notificaciones (pausadas)
+## Un correo, una cuenta
 
-Por ahora la app solo muestra la sección de Ofertas: las alertas y la bandeja de notificaciones están apagadas con `ENABLE_ALERTS=false` (valor por defecto).
-
-Mientras estén apagadas:
-
-- Los endpoints `/api/alerts` y `/api/notifications` siguen respondiendo.
-- Las tablas y migraciones no cambian.
-- Aprobar un descuento no crea notificaciones (`notified: 0`).
-
-Para reactivarlas:
-
-1. Pon `ENABLE_ALERTS=true` en Render.
-2. Pon `ENABLE_ALERTS=true` en Vercel; el frontend lo lee al compilar (ver el README del frontend).
+- Todos los correos se guardan sin espacios y en minúsculas.
+- Las cuentas nuevas y los cambios de correo no aceptan alias con `+` ("No uses alias con +; escribe tu correo normal."). El login y la recuperación sí los aceptan, para no dejar afuera a cuentas viejas.
+- Gmail ignora los puntos y el `+etiqueta`, y trata `googlemail.com` como `gmail.com`. La API compara la **forma canónica** del correo (`canonicalEmail`), calculada también en SQL sobre los correos guardados, y responde 409 con "Este correo ya está vinculado a una cuenta. Inicia sesión o recupera tu contraseña.".
+- En el modo supabase la API no ve el registro, así que el frontend llama antes a `POST /api/auth/check-email`. Además, si un usuario de Supabase entra con una variante de un buzón que ya tiene cuenta, se vincula a esa cuenta en vez de crear otra.
+- No hay migración ni índice único: con cuentas duplicadas que ya existan, ninguna migración puede fallar ni impedir que arranque la API. Esas cuentas siguen funcionando; solo se impide crear nuevas.
 
 ## IA
 
@@ -426,7 +409,7 @@ Después, la persona puede usar "¿Olvidaste tu contraseña?" con el correo nuev
 
 - `src/routes`: rutas de la API.
 - `src/repositories`: acceso a PostgreSQL.
-- `src/services`: reglas de descuento, sugerencias, asistente y chat, ofertas, notificaciones, cuenta, correo y cliente opcional de IA con respaldo.
+- `src/services`: reglas de descuento, sugerencias, asistente y chat, ofertas, catálogo, cuenta, correo y cliente opcional de IA con respaldo.
 - `src/middleware`: verificación del token y de los roles.
 - `src/errors.ts`: errores de la API y manejador de errores.
 - `src/dates.ts`, `src/format.ts`: fechas en hora de Bogotá y formato de pesos.

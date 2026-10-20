@@ -1,4 +1,4 @@
-// Calendar-day helpers. Expiration dates are plain 'YYYY-MM-DD' values interpreted in America/Bogota.
+// Ayudas de días de calendario. Las fechas de vencimiento son textos 'AAAA-MM-DD' en hora de America/Bogota.
 export const appTimeZone = 'America/Bogota';
 
 export const todayInBogota = (now: Date = new Date()): string =>

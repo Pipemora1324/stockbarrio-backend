@@ -12,7 +12,7 @@ const start = async () => {
     if (config.authProvider === 'supabase') for (const problem of supabaseAuthProblems()) console.warn(`Autenticación: AUTH_PROVIDER=supabase pero ${problem}. Nadie podrá iniciar sesión.`);
     await migrate();
     await pool.query('SELECT 1');
-    app.listen(config.port, () => console.info(`StockBarrio API escuchando en http://localhost:${config.port}`));
+    app.listen(config.port, () => console.info(`API de Stock Barrio escuchando en http://localhost:${config.port}`));
   } catch (error) {
     console.error('No se pudo iniciar la API.', error);
     await pool.end();

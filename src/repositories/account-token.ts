@@ -2,18 +2,18 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { database } from '../database.js';
 
-// 32 random bytes as URL-safe text: impossible to guess, and only its hash is saved.
+// 32 bytes aleatorios como texto seguro para URL: imposible de adivinar, y solo se guarda su hash.
 export const generateAccountToken = () => randomBytes(32).toString('base64url');
 export const hashAccountToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 export const accountTokenRepository = {
   createPasswordReset: async (userId: string, tokenHash: string, ttlMinutes: number) =>
     database.withTransaction(async (client) => {
-      // A new link replaces the previous ones.
+      // Un enlace nuevo reemplaza a los anteriores.
       await client.query('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND used_at IS NULL', [userId]);
       await client.query(`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, now() + ($3 || ' minutes')::interval)`, [userId, tokenHash, String(ttlMinutes)]);
     }),
-  // Marks the token as used in the same step that reads it, so it can only work once.
+  // Marca el token como usado en el mismo paso en que lo lee, así que solo funciona una vez.
   consumePasswordReset: async (client: PoolClient, tokenHash: string) =>
     (
       await client.query<{ userId: string }>(

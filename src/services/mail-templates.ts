@@ -6,7 +6,7 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&'
 
 const signature = 'Equipo de StockBarrio';
 
-// Simple layout with inline styles, which is what mail clients render reliably.
+// Diseño simple con estilos en línea, que es lo que los clientes de correo muestran bien.
 const layout = (title: string, paragraphs: string[], action?: { label: string; url: string }) => `<!doctype html>
 <html lang="es">
 <body style="margin:0;padding:24px;background:#f4f7f5;font-family:Arial,Helvetica,sans-serif;color:#1d2b25;">

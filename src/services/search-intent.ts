@@ -6,12 +6,12 @@ export type SearchPreference = (typeof searchPreferences)[number];
 export interface SearchIntent {
   terms: string[];
   preference: SearchPreference;
-  // "Cerca de mí": there are no distances, so it only means "in my neighborhood".
+  // "Cerca de mí": no hay distancias, así que solo significa "en mi barrio".
   wantsNearby: boolean;
   neighborhood?: string;
 }
 
-// Phrases are checked on the normalized message (lowercase, no accents). Longer phrases go first.
+// Las frases se buscan en el mensaje normalizado (minúsculas, sin tildes). Las más largas van primero.
 const preferencePhrases: Array<{ preference: Exclude<SearchPreference, 'relevance'>; phrases: string[] }> = [
   { preference: 'expiring', phrases: ['por vencer', 'proximo a vencer', 'proximos a vencer', 'a punto de vencer', 'vence pronto', 'vencen pronto', 'que vence', 'que vencen'] },
   { preference: 'best_grade', phrases: ['mejor categoria', 'mejor calidad', 'la mejor', 'el mejor', 'los mejores', 'las mejores', 'premium', 'triple a'] },
@@ -29,7 +29,7 @@ const stopWords = new Set([
   'existe', 'queda', 'quedan', 'alguna', 'alguno', 'ayudame', 'ayudas', 'y', 'tambien', 'otra', 'otro', 'opcion', 'opciones', 'mejor',
 ]);
 
-// Simple Spanish plural to singular so "huevos" matches "Huevos AA" and "panes" matches "Pan tajado".
+// Plural a singular simple en español, para que "huevos" encuentre "Huevos AA" y "panes" encuentre "Pan tajado".
 export const singularize = (word: string) => {
   if (word.length > 4 && word.endsWith('ces')) return `${word.slice(0, -3)}z`;
   if (word.length > 4 && /[^aeiou]es$/.test(word) && !/(ies|ues)$/.test(word)) return word.slice(0, -2);
@@ -69,10 +69,10 @@ export const parseIntent = (message: string, knownNeighborhoods: string[] = []):
   return { terms, preference, wantsNearby, ...(neighborhood ? { neighborhood } : {}) };
 };
 
-// Search root: drops a final "a"/"o" in longer words so "asada" finds "asado" and "tajada" finds "tajado".
+// Raíz de búsqueda: quita una "a"/"o" final en palabras largas para que "asada" encuentre "asado" y "tajada" encuentre "tajado".
 export const searchStem = (term: string) => (term.length >= 5 && /[ao]$/.test(term) ? term.slice(0, -1) : term);
 
-// Common Colombian names for the same product (accent-free, singular). Used when the literal search finds nothing.
+// Nombres colombianos comunes del mismo producto (sin tildes, en singular). Se usan cuando la búsqueda literal no encuentra nada.
 const synonymGroups: string[][] = [
   ['gaseosa', 'refresco', 'soda'],
   ['banano', 'banana', 'guineo'],
@@ -93,6 +93,6 @@ const synonymGroups: string[][] = [
 
 export const synonymsOf = (term: string) => synonymGroups.find((group) => group.includes(term))?.filter((item) => item !== term) ?? [];
 
-// Alternative term lists, replacing one term at a time by each synonym.
+// Listas alternativas de términos, cambiando un término a la vez por cada sinónimo.
 export const synonymVariants = (terms: string[]) =>
   terms.flatMap((term, index) => synonymsOf(term).map((synonym) => terms.map((item, position) => (position === index ? synonym : item))));

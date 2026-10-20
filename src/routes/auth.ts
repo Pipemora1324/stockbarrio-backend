@@ -7,19 +7,19 @@ import { storeRepository } from '../repositories/store.js';
 import { userRepository } from '../repositories/user.js';
 import { database } from '../database.js';
 import { authenticate, legacyAuthOnly, type AuthenticatedRequest } from '../middleware/auth.js';
-import { addressSchema, emailSchema, neighborhoodSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
+import { addressSchema, emailSchema, emailTakenMessage, neighborhoodSchema, newEmailSchema, passwordDiffersFromEmail, passwordEqualsEmailMessage, passwordSchema, personNameSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
 const router = Router();
-// Public registration creates store or customer accounts, never admins (those come from npm run admin:create).
+// El registro público crea cuentas de tienda o de cliente, nunca de administrador (esas salen de npm run admin:create).
 const accountSchema = {
   name: personNameSchema,
-  email: emailSchema,
+  email: newEmailSchema,
   password: passwordSchema,
 };
 const passwordNotEmail = <T extends { email: string; password: string }>(schema: z.ZodType<T>) =>
   schema.refine((input) => passwordDiffersFromEmail(input.password, input.email), { message: passwordEqualsEmailMessage, path: ['password'] });
 const customerRegisterSchema = passwordNotEmail(z.object({ accountType: z.literal('customer'), ...accountSchema }));
-// accountType is optional for stores so older clients keep working.
+// accountType es opcional para las tiendas, así los clientes viejos siguen funcionando.
 const registerSchema = passwordNotEmail(
   z.object({
     accountType: z.literal('store').optional(),
@@ -30,20 +30,20 @@ const registerSchema = passwordNotEmail(
     phone: phoneSchema.optional(),
   }),
 );
-// Login stays lenient with the format so older accounts can always sign in.
+// El login es flexible con el formato para que las cuentas viejas siempre puedan entrar.
 const loginSchema = z.object({ email: z.string().trim().toLowerCase().min(3).max(254), password: z.string().min(1).max(200) });
 
 router.post('/register', legacyAuthOnly, async (request, response, next) => {
   try {
     if (request.body?.accountType === 'customer') {
       const input = customerRegisterSchema.parse(request.body);
-      if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
+      if (await userRepository.getByMailbox(input.email)) return response.status(409).json({ message: emailTakenMessage });
       const created = await userRepository.create({ name: input.name, email: input.email, passwordHash: await hashPassword(input.password), role: 'customer' });
       const user = toAuthUser(created);
       return response.status(201).json({ message: 'La cuenta se ha creado correctamente.', token: createToken(user), user });
     }
     const input = registerSchema.parse(request.body);
-    if (await userRepository.getByEmail(input.email)) return response.status(409).json({ message: 'Este correo electrónico ya está registrado.' });
+    if (await userRepository.getByMailbox(input.email)) return response.status(409).json({ message: emailTakenMessage });
     if (await storeRepository.isNameTaken(input.storeName, input.neighborhood)) return response.status(409).json({ message: 'Ya existe una tienda con este nombre en ese barrio.' });
     const passwordHash = await hashPassword(input.password);
     const user = await database.withTransaction(async (client) => {
@@ -76,6 +76,23 @@ router.post('/login', legacyAuthOnly, async (request, response, next) => {
   }
 });
 
+// Permite que el registro diga "este correo ya tiene cuenta" antes de crearla, también en el modo supabase
+// (donde la API nunca ve el registro). Compara el buzón, así que las variantes de Gmail con puntos cuentan como el mismo.
+const checkEmailLimits = [
+  rateLimit({ windowMs: 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste muchas consultas seguidas. Espera un minuto e inténtalo de nuevo.' } }),
+  rateLimit({ windowMs: 60 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste muchas consultas. Espera un rato e inténtalo de nuevo.' } }),
+];
+
+router.post('/check-email', ...checkEmailLimits, async (request, response, next) => {
+  try {
+    const { email } = z.object({ email: newEmailSchema }).parse(request.body);
+    const taken = Boolean(await userRepository.getByMailbox(email));
+    response.json(taken ? { available: false, message: emailTakenMessage } : { available: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/me', authenticate, async (request: AuthenticatedRequest, response, next) => {
   try {
     const user = await userRepository.getById(request.user!.id);
@@ -89,7 +106,7 @@ router.get('/me', authenticate, async (request: AuthenticatedRequest, response, 
 const forgotSchema = z.object({ email: emailSchema });
 const resetSchema = z.object({ token: z.string().trim().min(20, 'El enlace no es válido.').max(200, 'El enlace no es válido.'), password: passwordSchema });
 const accountLimitMessage = { message: 'Hiciste demasiadas solicitudes. Espera unos minutos e inténtalo de nuevo.' };
-// Per IP, and per email so nobody can flood a single inbox from many addresses.
+// Por IP y por correo, para que nadie pueda llenar un buzón desde muchas direcciones.
 const forgotLimits = [
   rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false, message: accountLimitMessage }),
   rateLimit({ windowMs: 60 * 60 * 1000, limit: 3, keyGenerator: (request) => `email:${String(request.body?.email ?? '').trim().toLowerCase()}`, standardHeaders: true, legacyHeaders: false, message: accountLimitMessage }),

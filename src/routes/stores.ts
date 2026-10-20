@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { todayInBogota } from '../dates.js';
 import { conflict, forbidden, notFound } from '../errors.js';
-import { authenticate, requireStore, requireStoreRole, type AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticate, requireStoreRole, type AuthenticatedRequest } from '../middleware/auth.js';
 import { maxStoresPerUser, storeRepository } from '../repositories/store.js';
 import { addressSchema, neighborhoodSchema, phoneSchema, storeNameSchema } from '../validation.js';
 
@@ -14,7 +14,7 @@ const updateSchema = z
   .object({ name: storeNameSchema.optional(), neighborhood: neighborhoodSchema.optional(), address: addressSchema.optional(), phone: phoneSchema.optional() })
   .refine((input) => Object.values(input).some((value) => value !== undefined), 'Envía al menos un dato del local para actualizar.');
 
-// The store must exist and belong to the signed-in seller.
+// El local debe existir y ser del vendedor que inició sesión.
 const getOwnedStore = async (request: AuthenticatedRequest) => {
   const { id } = idSchema.parse(request.params);
   const store = await storeRepository.getOwned(id);
@@ -33,20 +33,7 @@ router.get('/', async (request, response, next) => {
   }
 });
 
-router.get('/neighborhoods', async (_request, response, next) => {
-  try {
-    response.json({ data: await storeRepository.listNeighborhoods() });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Main store of the seller (older clients) or the one in ?storeId=.
-router.get('/me', authenticate, requireStore, (request: AuthenticatedRequest, response) => {
-  response.json({ data: request.store });
-});
-
-// Every store of the seller, the main one first. It can be empty.
+// Todos los locales del vendedor, el principal primero. Puede estar vacío.
 router.get('/mine', authenticate, requireStoreRole, async (request: AuthenticatedRequest, response, next) => {
   try {
     response.json({ data: await storeRepository.listByUser(request.user!.id), max: maxStoresPerUser });
@@ -81,23 +68,12 @@ router.patch('/:id', authenticate, requireStoreRole, async (request: Authenticat
   }
 });
 
-// Soft delete: the store and its products stop showing; the data stays in the database.
+// Borrado lógico: el local y sus productos dejan de verse; los datos se quedan en la base.
 router.delete('/:id', authenticate, requireStoreRole, async (request: AuthenticatedRequest, response, next) => {
   try {
     const store = await getOwnedStore(request);
     await storeRepository.deactivate(store.id, request.user!.id);
     response.json({ message: `Se eliminó el local «${store.name}».` });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/:id', async (request, response, next) => {
-  try {
-    const { id } = idSchema.parse(request.params);
-    const store = await storeRepository.getById(id);
-    if (!store) return response.status(404).json({ message: 'La tienda no existe.' });
-    response.json({ data: store });
   } catch (error) {
     next(error);
   }

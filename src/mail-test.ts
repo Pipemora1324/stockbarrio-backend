@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { testMail } from './services/mail-templates.js';
 import { canSendMail, describeMailError, describeSender, formatSeconds, mailErrorHint, mailProvider, mailSetupProblems, sendMail, smtpOptions, verifyTransport } from './services/mailer.js';
 
-// The configuration in use, without any password or key.
+// La configuración en uso, sin ninguna contraseña ni clave.
 export const describeMailSetup = () => {
   const provider = mailProvider();
   if (provider === 'brevo-api') return `Transporte: API HTTPS de Brevo · API key: ${config.brevoApiKey ? 'definida' : 'vacía'} · remitente: ${describeSender()} · límite: ${formatSeconds(config.mailTimeoutMs)}`;
@@ -12,8 +12,8 @@ export const describeMailSetup = () => {
   return `Transporte: SMTP ${options.host}:${options.port} (${security}) · usuario: ${config.smtpUser || '(sin usuario)'} · contraseña: ${config.smtpPass ? 'definida' : 'vacía'} · remitente: ${describeSender()} · límite: ${formatSeconds(config.mailTimeoutMs)}`;
 };
 
-// Usage: npm run mail:test -- tucorreo@ejemplo.com
-// Sends one test message with the current configuration. It never prints the password or the API key.
+// Uso: npm run mail:test -- tucorreo@ejemplo.com
+// Envía un correo de prueba con la configuración actual. Nunca imprime la contraseña ni la clave de la API.
 export const runMailTest = async (to: string | undefined, log = console) => {
   if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
     log.error('Indica a qué correo enviar la prueba: npm run mail:test -- tucorreo@ejemplo.com');

@@ -6,10 +6,8 @@ import morgan from 'morgan';
 import { config } from './config.js';
 import { errorHandler } from './errors.js';
 import accountRouter from './routes/account.js';
-import alertsRouter from './routes/alerts.js';
 import assistantRouter from './routes/assistant.js';
 import authRouter from './routes/auth.js';
-import notificationsRouter from './routes/notifications.js';
 import offersRouter from './routes/offers.js';
 import productsRouter from './routes/products.js';
 import storesRouter from './routes/stores.js';
@@ -17,7 +15,7 @@ import suggestionsRouter from './routes/suggestions.js';
 
 export const app = express();
 app.disable('x-powered-by');
-// Render puts one proxy in front of the API: trust it so rate limits see the visitor IP and not the proxy.
+// Render pone un proxy delante de la API: se confía en él para que los límites vean la IP del visitante y no la del proxy.
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin.split(',').map((origin) => origin.trim()), credentials: true }));
@@ -31,8 +29,6 @@ app.use('/api/stores', storesRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/suggestions', suggestionsRouter);
 app.use('/api/assistant', assistantRouter);
-app.use('/api/alerts', alertsRouter);
-app.use('/api/notifications', notificationsRouter);
 app.use('/api/offers', offersRouter);
 app.use((_request, response) => response.status(404).json({ message: 'La ruta no existe.' }));
 app.use(errorHandler);

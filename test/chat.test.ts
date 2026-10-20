@@ -164,7 +164,7 @@ describe('chat API', { skip: integrationSkip }, () => {
     mock.restoreAll();
   });
 
-  // Simulated OpenAI-compatible providers: Groq-like main and Gemini-like fallback, one model each.
+  // Proveedores simulados compatibles con OpenAI: uno principal tipo Groq y un respaldo tipo Gemini, con un modelo cada uno.
   const simulateProviders = (answers: { principal?: (kind: 'intent' | 'compose') => Response | object; respaldo?: (kind: 'intent' | 'compose') => Response | object }) => {
     Object.assign(config, { aiProvider: 'openai', openAiApiKey: 'clave-simulada', openAiBaseUrl: 'https://principal.simulado/v1', openAiModel: 'openai/gpt-oss-120b', aiModels: [] });
     if (answers.respaldo) Object.assign(config, { aiFallbackApiKey: 'clave-respaldo', aiFallbackBaseUrl: 'https://respaldo.simulado/v1', aiFallbackModels: ['gemini-2.5-flash'] });
