@@ -1,17 +1,9 @@
-import { z } from 'zod';
 import { daysBetween, todayInBogota } from '../dates.js';
 import { formatCop } from '../format.js';
 import { productRepository, type SearchRow } from '../repositories/product.js';
 import { storeRepository } from '../repositories/store.js';
 import { normalizeText } from './discount-rules.js';
-import { requestJson } from './llm.js';
-import { parseIntent, searchPreferences, searchStem, singularize, synonymVariants, type SearchIntent, type SearchPreference } from './search-intent.js';
-
-export interface AssistantQuery {
-  message: string;
-  // Chosen by the customer: used as the neighborhood filter when the message does not name one.
-  neighborhood?: string;
-}
+import { searchStem, synonymVariants, type SearchIntent, type SearchPreference } from './search-intent.js';
 
 export interface AssistantResult {
   productId: string;
@@ -95,26 +87,6 @@ export const buildReply = (intent: SearchIntent, results: AssistantResult[], nei
   return parts.join(' ');
 };
 
-const aiIntentSchema = z.object({
-  terms: z.array(z.string().trim().min(2).max(40).regex(/^[\p{L}\d ]+$/u)).max(5),
-  preference: z.enum(searchPreferences),
-});
-
-const aiPrompt = `Interpretas búsquedas de clientes de tiendas de barrio en Colombia.
-Devuelve JSON {"terms": palabras del producto buscado (sin preferencias ni lugares), "preference": una de ${searchPreferences.join(', ')}}.
-cheapest = más barato, best_deal = mayor descuento u oferta, best_grade = mejor categoría o calidad, expiring = por vencer.`;
-
-// The provider can only refine the terms and the preference; location handling always comes from local rules.
-const resolveIntent = async (message: string, neighborhoods: string[]): Promise<SearchIntent> => {
-  const local = parseIntent(message, neighborhoods);
-  // The rules already understood the product: no need to spend the model quota.
-  if (local.terms.length || local.preference !== 'relevance') return local;
-  const answer = await requestJson(aiPrompt, { message }, aiIntentSchema);
-  if (!answer || !answer.terms.length) return local;
-  const terms = [...new Set(answer.terms.map((term) => singularize(normalizeText(term))))];
-  return { ...local, terms, preference: answer.preference };
-};
-
 const toResult = (row: SearchRow, today: string): AssistantResult => ({
   productId: row.id,
   name: row.name,
@@ -162,15 +134,4 @@ export const withChosenNeighborhood = <T extends SearchIntent>(intent: T, chosen
   if (intent.neighborhood || !chosen) return intent;
   const known = neighborhoods.find((item) => normalizeText(item) === normalizeText(chosen));
   return known ? { ...intent, neighborhood: known } : intent;
-};
-
-export const searchAssistant = async (query: AssistantQuery, today = todayInBogota()) => {
-  const neighborhoods = await storeRepository.listNeighborhoods();
-  const intent = withChosenNeighborhood(await resolveIntent(query.message, neighborhoods), query.neighborhood, neighborhoods);
-  const results = await findResults(intent, {}, today);
-  return {
-    reply: buildReply(intent, results, neighborhoods),
-    intent: { terms: intent.terms, preference: intent.preference, neighborhood: intent.neighborhood ?? null },
-    results,
-  };
 };

@@ -3,25 +3,10 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { optionalAuthenticate, type AuthenticatedRequest } from '../middleware/auth.js';
-import { searchAssistant } from '../services/assistant.js';
 import { chat, maxHistoryTurns } from '../services/chat.js';
 import { neighborhoodSchema } from '../validation.js';
 
 const router = Router();
-// Nearness is by neighborhood only: coordinates sent by older clients are ignored.
-const schema = z.object({
-  message: z.string().trim().min(2).max(300),
-  neighborhood: z.string().trim().min(2).max(80).optional(),
-});
-
-router.post('/search', rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { message: 'Hiciste muchas búsquedas seguidas. Espera un minuto e inténtalo de nuevo.' } }), async (request, response, next) => {
-  try {
-    response.json({ data: await searchAssistant(schema.parse(request.body)) });
-  } catch (error) {
-    next(error);
-  }
-});
-
 const chatSchema = z.object({
   messages: z
     .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().trim().min(1, 'El mensaje no puede estar vacío.').max(500, 'Cada mensaje puede tener como máximo 500 caracteres.') }))

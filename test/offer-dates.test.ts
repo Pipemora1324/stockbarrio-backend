@@ -139,8 +139,9 @@ describe('offers with a date range, catalog and expiration', { skip: integration
     assert.ok(!old || old.discountPercent === 0, 'an ended offer never shows its old discount');
     const offers = await call('POST', '/api/assistant/chat', { messages: [{ role: 'user', content: 'ofertas de hoy' }], neighborhood: 'Fontibón' });
     assert.deepEqual(offers.body.data.results.map((item: { name: string }) => item.name), ['Pollo vigente']);
-    const search = await call('POST', '/api/assistant/search', { message: 'pollo', neighborhood: 'Fontibón' });
-    const terminated = search.body.data.results.find((item: { name: string }) => item.name === 'Pollo terminado');
+    const { findResults } = await import('../src/services/assistant.js');
+    const search = await findResults({ terms: ['pollo'], preference: 'relevance', wantsNearby: false, neighborhood: 'Fontibón' });
+    const terminated = search.find((item) => item.name === 'Pollo terminado')!;
     assert.deepEqual([terminated.discountPercent, terminated.offerPrice], [0, 10000]);
   });
 });
