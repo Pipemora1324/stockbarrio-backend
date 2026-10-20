@@ -153,18 +153,15 @@ const seedStore = async (client: PoolClient, store: SeedStore, passwordHash: str
   console.info(`${store.name}: creada con ${store.products.length} productos${count > 1 ? ` y ${count - 1} local más` : ''}.`);
 };
 
-const demoCustomer = { email: 'cliente.demo@stockbarrio.test', name: 'Cliente de prueba', alerts: [{ query: 'huevos', neighborhood: null }, { query: 'leche', neighborhood: 'Chapinero' }] };
+const demoCustomer = { email: 'cliente.demo@stockbarrio.test', name: 'Cliente de prueba' };
 
 const seedCustomer = async (client: PoolClient, passwordHash: string) => {
   if ((await client.query('SELECT 1 FROM users WHERE email = $1', [demoCustomer.email])).rowCount) {
     console.info('Cliente de prueba: ya existe, se omite.');
     return;
   }
-  const user = await client.query<{ id: string }>(`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, 'customer') RETURNING id`, [demoCustomer.name, demoCustomer.email, passwordHash]);
-  for (const alert of demoCustomer.alerts) {
-    await client.query('INSERT INTO alert_subscriptions (user_id, query, neighborhood) VALUES ($1, $2, $3)', [user.rows[0].id, alert.query, alert.neighborhood]);
-  }
-  console.info(`Cliente de prueba creado con ${demoCustomer.alerts.length} alertas.`);
+  await client.query(`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, 'customer')`, [demoCustomer.name, demoCustomer.email, passwordHash]);
+  console.info('Cliente de prueba creado.');
 };
 
 // The sample data never reaches production: the check reads NODE_ENV and has no override.
