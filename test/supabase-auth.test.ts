@@ -183,6 +183,19 @@ describe('API with AUTH_PROVIDER=supabase', { skip: integrationSkip }, () => {
     assert.match(other.body.message, /ya está vinculado/);
   });
 
+  it('treats Gmail variants with dots or googlemail.com as the same mailbox: links the old account, never a second one', async () => {
+    config.authProvider = 'legacy';
+    const legacy = await call('POST', '/api/auth/register', { accountType: 'customer', name: 'Pedro Gómez', email: 'pedro.gomez@gmail.com', password: 'cliente12345' });
+    useSupabase();
+    const linked = await call('GET', '/api/auth/me', undefined, tokenFor({ email: 'pedrogomez@googlemail.com', metadata: { name: 'Pedro Gómez' } }));
+    assert.equal(linked.status, 200);
+    assert.equal(linked.body.user.id, legacy.body.user.id);
+    const second = await call('GET', '/api/auth/me', undefined, tokenFor({ email: 'p.e.d.r.o.gomez@gmail.com', metadata: { name: 'Pedro Gómez' } }));
+    assert.equal(second.status, 409);
+    const accounts = await context.pool.query(`SELECT count(*)::int AS count FROM users WHERE email LIKE '%gomez@%'`);
+    assert.equal(accounts.rows[0].count, 1);
+  });
+
   it('answers 403 when the email is not confirmed, and links nothing', async () => {
     config.authProvider = 'legacy';
     const legacy = await registerStore('sin-confirmar');
