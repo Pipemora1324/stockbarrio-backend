@@ -51,12 +51,18 @@ export const config = {
   chatRatePerMinute: positiveNumber(process.env.CHAT_RATE_PER_MINUTE, 10),
   chatRatePerDay: positiveNumber(process.env.CHAT_RATE_PER_DAY, 100),
   // Public address of the frontend, used to build the links sent by email.
-  appUrl: (process.env.APP_URL ?? 'http://localhost:4200').replace(/\/+$/, ''),
-  smtpHost: process.env.SMTP_HOST ?? '',
+  appUrl: (process.env.APP_URL ?? 'http://localhost:4200').trim().replace(/\/+$/, ''),
+  // In production the links of the emails need the real address of the frontend.
+  appUrlConfigured: Boolean(process.env.APP_URL?.trim()) || process.env.NODE_ENV !== 'production',
+  smtpHost: (process.env.SMTP_HOST ?? '').trim(),
   smtpPort: positiveNumber(process.env.SMTP_PORT, 587),
-  smtpUser: process.env.SMTP_USER ?? '',
+  // true: TLS from the start (port 465). false: STARTTLS (port 587). Empty: deduced from the port.
+  smtpSecure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE.trim().toLowerCase() === 'true' : positiveNumber(process.env.SMTP_PORT, 587) === 465,
+  smtpUser: (process.env.SMTP_USER ?? '').trim(),
   smtpPass: process.env.SMTP_PASS ?? '',
-  mailFrom: process.env.MAIL_FROM ?? 'StockBarrio <no-responder@stockbarrio.local>',
+  // Without MAIL_FROM the authenticated account is the sender (what Gmail uses anyway).
+  mailFrom: (process.env.MAIL_FROM ?? '').trim(),
+  smtpTimeoutMs: positiveNumber(process.env.SMTP_TIMEOUT_MS, 10_000),
   accountTokenTtlMinutes: 30,
   // Alerts and notifications are paused for now: endpoints stay, but approving discounts creates no notices.
   enableAlerts: process.env.ENABLE_ALERTS === 'true',
