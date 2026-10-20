@@ -254,8 +254,8 @@ Salvaguardas:
 - **El enlace.** Se arma solo con `APP_URL`, nunca con el host de la petición. El token se guarda con hash SHA-256, es de un solo uso y vence en 30 minutos. Pedir un enlace nuevo invalida el anterior, y un enlace de cambio de correo no sirve para restablecer la contraseña (ni al revés).
 - **Límites.** 5 solicitudes cada 15 minutos por IP y 3 por hora por correo (aunque vengan de varias IP). Restablecer tiene 10 intentos cada 15 minutos por IP.
 - **Cierre de sesiones.** Restablecer o cambiar la contraseña, o confirmar un correo nuevo, sube `users.token_version` y cierra las sesiones anteriores. Al cambiar la contraseña llega además el correo "Tu contraseña de StockBarrio fue cambiada".
-- **Correos.** Van en español, en texto plano y HTML. Se envían con nodemailer, con 10 segundos de límite para conectar y para enviar. Si el envío falla, el registro solo dice el tipo de error (por ejemplo `EAUTH · SMTP 535`), sin el correo de la persona, el enlace, el token ni la contraseña SMTP.
-- **Sin SMTP:**
+- **Correos.** Van en español, en texto plano y HTML. Se envían por SMTP (nodemailer) o por la API HTTPS de Brevo, según `MAIL_PROVIDER`, con 10 segundos de límite. Si el envío falla, el registro solo dice el tipo de error (por ejemplo `EAUTH · SMTP 535` o `Brevo 401`), sin el correo de la persona, el enlace, el token ni la contraseña o la API key.
+- **Sin transporte configurado** (SMTP sin `SMTP_HOST`, o Brevo sin `BREVO_API_KEY` o sin `MAIL_FROM`):
   - en desarrollo el correo, con su enlace, se imprime en la consola;
   - en producción nunca se imprimen enlaces y la API responde 503 ("El envío de correos no está configurado todavía").
   - Lo mismo pasa en producción si falta `APP_URL`, para no mandar enlaces a `localhost`. Al arrancar, la API avisa en el registro si falta alguna de las dos.
