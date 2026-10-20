@@ -2,7 +2,7 @@
 
 Las pruebas usan el runner nativo de Node (`node:test`) con `tsx`, y la cobertura se mide con `c8`. Corren en serie (`--test-concurrency=1`) porque los archivos de integración comparten la misma base de pruebas.
 
-Las pruebas de correo nunca envían correos reales: usan un transporte simulado (`useMailTransport`) o un nodemailer simulado, y `test/setup.ts` vacía `SMTP_HOST`.
+Las pruebas de correo nunca envían correos reales: usan un transporte simulado (`useMailTransport`), un nodemailer simulado o un `fetch` simulado para Brevo. `test/setup.ts` vacía `SMTP_HOST`, `MAIL_PROVIDER` y `BREVO_API_KEY`, y bloquea cualquier `fetch` fuera de localhost.
 
 ## Comandos
 
@@ -60,16 +60,17 @@ En PowerShell: `$env:TEST_DATABASE_URL = "postgresql://stock:stock@localhost:554
 | `notifications.test.ts` | Unitaria e integración | Alertas y notificaciones por barrio, sin ubicación; las alertas antiguas por radio no avisan (pausadas con `ENABLE_ALERTS`; la suite las enciende para probarlas) |
 | `dates.test.ts` | Unitaria | Cambio de día en Bogotá, bisiestos |
 | `mailer.test.ts` | Unitaria | SMTP con TLS en el 465 y STARTTLS obligatorio en el 587, timeouts de 10 s, contraseña de aplicación de Gmail sin espacios, remitente por defecto, texto y HTML, errores descritos sin claves, enlaces ni tokens, pistas para Gmail y Brevo, plantillas en español, `mail:test` sin imprimir la contraseña; consola en desarrollo y 503 en producción sin SMTP |
+| `brevo.test.ts` | Unitaria e integración | API HTTPS de Brevo con `fetch` simulado: envío con la cabecera `api-key` y las mismas plantillas, 401 (clave), 400 (remitente no verificado), tiempo agotado y red caída descritos sin la clave ni datos de la persona, "correo no configurado" sin `BREVO_API_KEY` o `MAIL_FROM`, `mail:test` con Brevo, recuperación completa por la API y misma respuesta si Brevo falla |
 | `product-filters.test.ts` | Unitaria | Filtros SQL con los placeholders correctos |
 
 ## Resultado actual
 
-190 pruebas, todas en verde (unos 40 s con la base de pruebas local).
+203 pruebas, todas en verde (unos 40 s con la base de pruebas local).
 
-| Métrica | Tras simplificar | Ahora (correo) |
+| Métrica | Correo por SMTP | Ahora (con Brevo por API) |
 | --- | --- | --- |
 | Líneas | 97,8 % | 97,8 % |
-| Ramas | 88,8 % | 88,7 % |
+| Ramas | 88,7 % | 88,2 % |
 | Funciones | 100 % | 100 % |
 
 Lo que queda sin cubrir es sobre todo:
